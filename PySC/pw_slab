@@ -1,0 +1,159 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from w2k import *
+from struct_utils import *
+from io_utils import *
+from latt_utils import * 
+
+myname_full = sys.argv[0]
+myname = os.path.basename(myname_full)
+
+def f_Help_Info():
+  print "\n"+ myname_full + ": a Python script to perform some operation on the slab model in wien2k calculations \n"
+  print "   Usage: " + myname + " [options]"\
+  + """
+  Options:  
+    -f <case_name>  # case name 
+    -h              # print out this information 
+    -t <task>       # what kind of operation to be made to the target slab structure 
+                     0 - increase the vacuum width 
+                     1 - 
+
+    -a <add_vac>    # add add_vac*unit_inp to the original width   
+    -d <iz_dir>     # the direction normal to the slab (the default 3, i.e. z-axis) 
+                    # if negative, the slab is located at the top and bottom of the cell
+    -r <rotate>     # rotate the axis  
+
+    -s <scale>      # scale the coordinates of all atoms. 
+                      to be used to set up the new slab model using the different bulk lattice constants
+
+    -sh <shift>     # shift all cooridinates along the direction indicated by "-d <iz_dir>"
+
+    -u <unit_inp>   # input unit, the default : 0 
+                     0 -> Bohr, 1 ->  Ang, 2 -> using the original width as the unit
+    -v <vac_wid>    # the original vacuum width, if not set, automatically determined from (zmax-zmin)*c_latt
+  """
+  sys.exit(0)
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+case_name = f_Getopt('-f', 1, '')
+iz_dir    = f_Getopt('-d', 1, 3 )
+unit_inp  = f_Getopt('-u', 1, 0 ) 
+add_vac   = f_Getopt('-a', 1, 0.0)
+rotate    = f_Getopt('-r', 1, 0  ) 
+scale     = f_Getopt('-s', 1, 1.0) 
+shift     = f_Getopt('-sh',1, 0.0) 
+vac_width = f_Getopt('-v', 1, 0.0)
+
+case_name = W2k_check_name(case_name)
+
+(latt_type,latt,basis,misc) = W2k_read_struct(case_name,mode=2)
+
+# check with the slab normal directory 
+if abs(iz_dir) < 1 or abs(iz_dir) > 3: 
+  print "ERROR: invalide value for the option '-d': must be one of +/- 1 (x),2(y),or 3(z)!" 
+  sys.exit(1) 
+
+iz = abs(iz_dir)-1 
+nat = len(basis) 
+latt_old = latt[:]
+
+# set the lenth unit 
+if unit_inp == 0:
+  unit = 1.0
+elif unit_inp == 1:
+  unit = Ang2Bohr
+elif unit_inp == 2:
+  unit = latt[iz]
+else:
+  print "ERROR: invalide value of the option '-u': only 0,1 or 2 are supported"
+  sys.exit(1) 
+
+#---------------------------------------------- ! 
+# Change the vaccum width
+#!
+
+if add_vac != 0.0: 
+  latt[iz] += add_vac * unit 
+
+  for iat in range(nat):
+    z_old = basis[iat][1][iz]
+
+    if(iz_dir > 0): 
+      z = (z_old-0.5)*latt_old[iz]/latt[iz] + 0.5
+    else: 
+      if(z_old < 0.5 ): 
+        z = z_old*latt_old[iz]/latt[iz] 
+      else:
+        z = (z_old-1.0)*latt_old[iz]/latt[iz] + 1.0
+  
+    basis[iat][1][iz] = z
+
+#
+# scale the lattice constants
+#
+
+if scale != 1.0: 
+
+  # first determine the width of the slab 
+  if vac_width == 0.0: 
+    z_min = 0.0
+    z_max = 1.0  
+
+    for iat in range(nat): 
+      z = basis[iat][1][iz]
+      if iz_dir > 0: 
+        if z < z_min: z_min = z
+        if z > z_max: z_max = z
+      else:
+        if z < 0.5:
+          if z > z_min: z_min = z 
+        if z > 0.5:
+          if z < z_max: z_max = z 
+
+    if iz_dir > 0: 
+      slab_width = ( z_max - z_min )*latt[iz] 
+    else:
+      slab_width = ( 1.0 - (z_max - z_min) )*latt[iz] 
+
+  else:
+
+    slab_width = latt[iz] - vac_width*unit 
+
+
+# scale lattice constants
+  for i in range(3): 
+    if i == iz: 
+      latt[i] = (latt[i] - slab_width) + slab_width*scale 
+    else:
+      latt[i] *= scale 
+
+# scale coodinates along the iz direction 
+  for iat in range(nat):
+    z = basis[iat][1][iz]
+    if iz_dir > 0:
+      z = (z-0.5)*latt_old[iz]*scale/latt[iz]+0.5 
+    else:
+      if z < 0.5: 
+        z = z*latt_old[iz]*scale/latt[iz]
+      else:
+        z = (z-1.0)*latt_old[iz]*scale/latt[iz] + 1.0   
+    basis[iat][1][iz] = z
+
+
+# write the final structure 
+
+if rotate > 0:  # switch x and z axis
+  print "Rotate the coordinate axis in terms of mode=",rotate
+  f_Latt_reset_axis(rotate,latt,basis) 
+
+if abs(shift) > 0.0:
+  print "Shift the slab by %f along the %d-th axis"%(shift,iz)
+  for iat in range(nat):
+    basis[iat][1][iz] += shift 
+    if basis[iat][1][iz] >= 1.0: basis[iat][1][iz] -= 1.0 
+    if basis[iat][1][iz]  < 0.0: basis[iat][1][iz] += 1.0 
+  
+W2k_write_struct(case_name,latt_type,latt,basis,misc=misc)
+

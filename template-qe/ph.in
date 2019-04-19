@@ -1,0 +1,16 @@
+Template
+&inputph
+    tr2_ph=1.0d-12,
+    prefix='',
+    epsil = .true.
+    trans = .true.
+    lraman = .false.
+    elop = .false.
+    ldisp = .false.
+    outdir='./',
+    fildyn='case.dyn',
+    fildrho='case.drho',
+    fildvscf = 'case.dvscf',
+/
+0 0 0
+

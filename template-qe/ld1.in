@@ -1,0 +1,19 @@
+&input
+  title = 'C'
+  zed = 6.0
+  rel = 1
+  iswitch = 3
+  config = '[He] 2s2.0 2p2.0 3d-2.0'
+  dft = 'lda'
+/
+
+&inputp
+  lloc = 2
+  pseudotype = 3
+  file_pseudopw = 'template.UPF'
+  author = 'TMC'
+  nlcc = .false.
+/
+2
+2S  1  0  2.00  0.00  1.50  1.60
+2P  2  1  2.00  0.00  1.40  1.60

@@ -1,0 +1,100 @@
+#!/usr/bin/env python
+## this file contains functions used for embedded cluster model (ECM) calculations
+import sys,os,shutil
+import commands,string
+from math import *
+from numpy import *
+from io_utils import *
+from data_utils import *
+from eos_fitting import *
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to fit the equation of motion for given data \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -h                    # display this help information
+    -f <data_file_name>   # the data file name 
+    -e <eqfit=BM>       # the form of the equation of motion used for fitting 
+                           M -- Murnaghan
+                           BM -- BirchMurnaghan(default)
+                           H -- Harmonic  
+                           Morse -- Morse potential 
+                           <n> -- n-th order polynomial (not implemented yet) 
+    -x <xcol>       # which column as x, default 1 
+    -y <ycol>       # which column as y, default 2 
+    -n <np_out=100> # the number of data points to calculate the fitting function
+    -s              # shift y-values by E_0 
+    -u <unit=w/v/q> # the units used in the input data 
+                     w (wien2k-type): the energy in Ry and volume in bohr^3
+                     v (vasp-type): energy in eV and volume in Anstrom^3
+  """
+  sys.exit(1)  
+
+def_file = "eos.dat"
+def_debug = False
+def_eqfit = 'BM'
+def_xcol = 1
+def_ycol = 2
+
+if f_Getopt('-h',0,False): f_Help_Info()
+file = f_Getopt('-f',1,def_file)
+eqfit = f_Getopt('-e',1,def_eqfit)
+xcol = f_Getopt('-x',1,def_xcol)
+ycol = f_Getopt('-y',1,def_ycol) 
+np_out = f_Getopt('-n',1,100) 
+lshift = f_Getopt('-s',0,False) 
+unit = f_Getopt('-u',1,'NA') 
+
+data = sorted(f_Read_Data(file),key=lambda row:row[xcol-1])
+nrow = len(data)
+ncol = len(data[0])
+
+unit_B0=1.0
+if unit == 'w':
+  unit_B0 = 1.471051e4 
+
+xdata=[]
+ydata=[]
+for i in range(nrow):
+  xdata.append(float(data[i][xcol-1]))
+  ydata.append(float(data[i][ycol-1]))
+
+par,err,xy_out = f_EOS_Fitting(xdata,ydata,eqfit,np_out,debug=True)
+
+if np_out > 0:
+  out_file = os.path.splitext(file)[0]+"-eosfit.dat"
+  ofile = open(out_file,'w')
+  ofile.write("# Data from EOS fitting\n")
+
+  if eqfit == 'M' or eqfit == 'BM': 
+    V0 = par[0]; E0= par[1]; B0 = par[2]*unit_B0; B0P = par[3]
+    print "Parameters from %s EOS fitting: E0=%16.6f, V0=%12.6f, B0=%12.6f and B0'=%12.6g\n" %(eqfit,E0,V0,B0,B0P)
+    ofile.write("# Parameters from %s EOS fitting: E0=%16.6f, V0=%12.6f, B0=%12.6f and B0'=%12.6g\n" %(eqfit,E0,V0,B0,B0P))
+  elif eqfit == 'Morse':
+    (E0,Re,De,a) = par
+    ofile.write("# Parameters from Morse potential fitting: E0= %16.6f, Re=%12.6f, De=%12.6f, a=%12.4f\n"%(E0,Re,De,a))
+
+  y0 = 0.0 
+  if lshift: y0 = E0
+
+  ofile.write("#Original data\n")
+  for i in range(nrow):
+    ofile.write("%12.6f %12.6f \n"%(xdata[i],ydata[i]-y0))
+  ofile.write("#Fitting data\n\n")
+    
+  for i in range(np_out):
+    ofile.write("%12.6f %12.6f \n"%(xy_out[i][0],xy_out[i][1]-y0))
+  ofile.close()
+
+if eqfit == "Morse":
+  (E0,Re,De,a) = par  
+  print "Morse-type EOS:"
+  print "   E0= %-12.6f"%(E0)
+  print "   Re= %-12.4f"%(Re)
+  print "   De= %-12.6f"%(De) 
+  print "   a=  %-12.4f"%(a) 
+  print " fitting error:%12.6f"%(err) 
+
+

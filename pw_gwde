@@ -1,0 +1,100 @@
+#!/usr/bin/env python
+import os,sys
+from common_caseutil import f_Data_ReadMultiCol
+from constants import Ha2eV
+from argparse import ArgumentParser
+
+parser = ArgumentParser(description="Read GW correction vs. LDA energy from FHI-GAP .eqpeV_GW\nThis should be used inthe working directory of a completed FHI-GAP calculation.")
+parser.add_argument('--gw0',dest="b_gw0",action="store_true",default=False,help="Read GW0 instead of GW(which means G0W0)")
+args = parser.parse_args()
+
+tag = "GW"
+if (args.b_gw0):
+    tag = "GW0"
+
+data = None
+for dir, dirnames, filenames in os.walk(os.getcwd()):
+    for filename in filenames:
+        if (filename.endswith(".eqpeV_"+tag)):
+            data = f_Data_ReadMultiCol(filename)
+            break
+
+if (data is None):
+    print("Cannot find any eqpeV_Gw file. Please check the directory.")
+    sys.exit(1)
+
+func_lda = lambda x:x[2]
+terms = [
+        ["vxc",lambda x:x[7]],
+        ["sig",lambda x:float(x[5])+float(x[6])],
+        ["dex",lambda x:float(x[5])-float(x[7])],
+        ["sigx",lambda x:x[5]],
+        ["sigc",lambda x:x[6]],
+        ["zde",lambda x:x[8]],
+        ["z",lambda x:x[10]],
+        ["de",lambda x:float(x[5])+float(x[6])-float(x[7])]
+        ]
+
+for name,func in terms:
+    if (args.b_gw0):
+        filename_out  = "shift-gw0-%s.dat"
+    else:
+        filename_out  = "shift-%s.dat"
+    f = open(filename_out % name,'w')
+    for line in data:
+        f.write("%s %s\n" % (func_lda(line),func(line)))
+    f.close()
+
+#Parse the whole imaginary axis
+filename_sxcnn = ""
+filename_outgw = ""
+for dir, dirnames, filenames in os.walk(os.getcwd()):
+    for filename in filenames:
+        if (filename.endswith(".sxc_nn")):
+            filename_sxcnn = filename
+        if (filename.endswith(".outgw")):
+            filename_outgw = filename
+
+#Read frequencies
+f = open(filename_outgw)
+lines = f.readlines()
+f.close()
+for i,line in enumerate(lines):
+    if ("Freq grid for convolution" in line):
+        break
+i += 3
+list_freq = []
+while (lines[i][1] != "-" and len(lines[i].strip()) > 0):
+    list_freq.append(float(lines[i].split()[1]))
+    i += 1
+
+#Read energies
+#Only with nspin=1
+f = open(filename_sxcnn)
+lines = f.readlines()
+f.close()
+nspin,nk,nbmin,nbmax,nfreq = [int(x) for x in lines[1].split()]
+if (nspin != 1):
+    raise FormatError("nspin>1 not implemented")
+seim = {}
+i = 2
+for ik in range(nk):
+    i += 1
+    for ib in range(nbmin,nbmax+1):
+        seim_kb = []
+        while (len(seim_kb) < nfreq+1):
+            v = [float(x) for x in lines[i].split()]
+            seim_kb += [v[x:x+2] for x in xrange(0,len(v),2)]
+            i += 1
+        seim[(ik,ib)]=seim_kb[1:] #Remove exchange term
+
+#Write
+foldername = "seim"
+if (not os.path.exists(foldername)):
+    os.mkdir(foldername)
+for t,seim_kb in seim.iteritems():
+    f = open(os.path.join(foldername,"%i-%i.dat" % t),'w')
+    for x,y in zip(list_freq,seim_kb):
+        f.write("%14.7f %14.7f %14.7f\n" % (x*Ha2eV,y[0]*Ha2eV,y[1]*Ha2eV))
+    f.close()
+

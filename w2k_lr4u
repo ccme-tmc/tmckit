@@ -1,0 +1,371 @@
+#!/bin/tcsh -f
+
+# This script run linear response constrained DFT calculation to calculate U 
+# for a given supercell structure  
+
+echo '-----------------------------------------------------------------'
+echo '                           run_lr4u                            '
+echo '-----------------------------------------------------------------'
+
+set fullname=$0
+set bindir=$fullname:h
+set name=$fullname:t
+set logfile=:log
+set ierr = 0
+
+unalias cp 
+unalias mv 
+unalias rm 
+alias cpf 'cp -f'
+alias mvf 'mv -f'
+alias rmf 'rm -f'
+alias sb 'shift; breaksw'       #definition used in switcha
+alias AWK awk
+alias print 'echo  \!:* | tee -a $outfile;'
+
+unset file 
+set jobopt = ( -ec 0.000001 -i 200 )
+unset start 
+set ic0=0 
+unset sp
+unset smearing
+unset orbu 
+unset adjust_ne
+set cmplxflag 
+set savedir=./
+set itmax=20
+set conv_tol=0.001
+
+set lr4u_nf=2
+set lr4u_ibg=1
+set lr4u_ising=1
+set lr4u_eta=0.00001
+
+while ($#argv)
+  switch ($1)
+    case -an:
+      set anjust_ne; sb 
+    case -c:
+      set cmplxflag='-c'; sb
+    case -d:
+      shift; set savedir=$1; mkdir -p $savedir ; sb 
+    case -f:
+      shift; set file=$1; set jobopt = ( $jobopt -f $file );  sb 
+    case -ibg:
+      shift; set lr4u_ibg=$1; sb 
+    case -ic0:
+      shift; set ic0=$1; sb 
+
+    case -nf:
+      shift; set lr4u_nf=$1; sb
+
+    case -p:          
+      set jobopt = ( $jobopt -p ); sb 
+    case -sp:
+      set sp; sb 
+
+    case -orbu:
+      shift; set orbu=$1; sb 
+
+    case -sm:
+      shift; set smearing=$1; sb
+
+    case -st:
+      shift; set start=$1; sb
+    case -h:
+      goto help
+    default:
+      echo "ERROR: Undefined argument" $1
+      goto help 
+  endsw
+end
+
+# set default vaule of the filename to the name of the working directory
+  if (! $?file) then
+    set file  = `pwd`
+    set file  = $file:t
+  endif
+  if !(-e $file.struct ) then
+    echo " ERROR: Current directory does not have $file.struct!"
+    goto error
+  endif
+  echo ' case name:' $file
+
+  set inpfile = $file.inlr4u 
+  set outfile = $file.outlr4u
+  
+  if !(-e $inpfile ) then  
+    echo "  ERROR: input file for lr4u does not exist!"
+    goto error 
+  endif
+  if ( -e $outfile ) then 
+    mvf $outfile ${outfile}_old  
+  endif 
+
+  if !($?orbu) then 
+    set jobopt = ( $jobopt -orbc -dm )
+  else 
+    set jobopt = ( $jobopt -orb -setvorb ) 
+  endif 
+
+#  Get basic input parameters  
+#    nconf -- the number of configurations 
+#    lorb  --  the orbital ( 2 for d- and 3- for f-orbitals)  to which the perburbation potential is applied 
+#    natorb -- the number of atoms whose local occupation number is calculated 
+#    iats_orb[1..natorb] -- indices of atoms whose local occupation numbers are calculated  
+  set nconf=`AWK 'NR == 1 {print $1}' $inpfile`   
+  set lorb=`AWK 'NR == 1 {print $2}' $inpfile`    
+  set natorb=`AWK 'NR == 1 {print $3}' $inpfile`
+
+  set iats_orb 
+  set ia=1 
+  while ( $ia <= $natorb ) 
+    set iats_orb = ( $iats_orb `AWK -v i=$ia 'NR == 1 {print $(3+i) }' $inpfile` )
+    @ ia++
+  end   
+
+# the impurity atom, to which the perturbation potential is applied 
+
+  set iat_imp=$iats_orb[1]
+  if ( $iat_imp > 100 ) then
+    set imp_tag=$iat_imp
+  else if ( $ia > 10 ) then
+    set imp_tag=0$iat_imp
+  else
+    set imp_tag=00$iat_imp
+  endif
+
+  if($?sp) then 
+    set runscf="runsp_lapw $jobopt  "
+  else 
+    set runscf="runsp_c_lapw $jobopt "
+  endif 
+
+  echo "  "
+  echo "  nconf    =" $nconf
+  echo "  lorb     =" $lorb 
+  echo "  natorb   =" $natorb 
+  echo "  iats_orb =" $iats_orb
+  echo "  iat_imp  =" $iat_imp
+  echo "  imp_tag  =" $imp_tag
+  echo "  runscf   =" $runscf
+  echo "  "
+ 
+ # check complex
+  w2k_chkcmplx $cmplxflag -f $file
+  if( $status == 1 ) then
+    set cmplx='c'
+    set icmplx=1
+  else if( $status == 0 ) then
+    set cmplx=''
+    set icmplx=0
+  else
+    echo "  ERROR found when chkcmplx"
+    goto error
+  endif
+
+  if($?start) then 
+    goto $start
+  endif
+
+init:
+  # generate case.inorb and case.indm[c]  if they are not present  
+  ## generate case.indm 
+  set indm=$file.indm$cmplx
+  if !( -e $indm ) then 
+    echo "-9.       Emin cutoff energy"   > $indm
+    echo $natorb >> $indm 
+    set ia=1
+    while ( $ia <= $natorb )
+      echo $iats_orb[$ia] 1 $lorb  >> $indm 
+      @ ia++
+    end
+    echo 0 0 >> $indm 
+  endif 
+  
+  # generate case.inorb file when the option " -orbu <U> " is present
+  if ($?orbu ) then 
+    echo "Run LR4U calculation using LDA+U with U=$orbu Ry."
+    echo " -- create $file.inorb --"
+    set inorb=$file.inorb
+    if ( -e $inorb ) mv -f $inorb ${inorb}_old
+    echo "1  $natorb 0           nmod, natorb, ipr" > $inorb 
+    echo "PRATT  1.0             BROYD/PRATT, mixing" >> $inorb
+    set ia=1
+    while ( $ia <= $natorb )
+      echo "$iats_orb[$ia] 1 $lorb    iatom nlorb, lorb">> $inorb
+      @ ia++
+    end
+    echo "1                      nsic 0..AFM, 1..SIC, 2..HFM" >> $inorb
+    set ia=1
+    while ( $ia  <= $natorb )
+      echo "$orbu  0.00      U J (Ry)" >> $inorb
+      @ ia++
+    end 
+    echo " --- $inorb ---" 
+    cat $inorb
+  endif 
+
+  # to accelerate the convergence TEMP is used in case.in2
+
+  if($?smearing) then 
+    if !( -e $file.in2_bak_lr4u ) then 
+       cp $file.in2$cmplx $file.in2_bak_lr4u
+     endif 
+     mv -f $file.in2$cmplx $file.in2_tmp
+     AWK -v temp=$smearing '{if ( NR==3 ) {printf "%5s%10.5f\n","TEMP ",temp } else { print $0} }' $file.in2_tmp > $file.in2$cmplx
+   endif 
+
+scf:
+
+  # first do a SCF calculation without any perturbation
+
+  set ic=$ic0
+  while ( $ic <= $nconf )
+    echo "Start ic= " $ic
+
+    w2k_clean -f $file  
+
+    # alwayws using the SCF without perturbation as the starting point 
+    if ( $ic > 0 ) then 
+      foreach i ( `ls $savedir/v_0/$file.clm*`   )  
+        cpf $i ./ 
+      end
+    endif 
+    if ( -e $file.scf ) rm -f $file.scf
+
+    echo " - create the *.in_setvorb"
+    echo $file  "  # case name"> $file.in_setvorb
+    if($?orbu) then 
+      echo "0        # inew = 1 for new vorb" >> $file.in_setvorb
+    else 
+      echo "1        # inew = 1 for new vorb" >> $file.in_setvorb     
+    endif 
+
+    echo "1        # number of vorb to be reset" >> $file.in_setvorb
+    if( $ic == 0 ) then 
+      set alf=0
+    else 
+      set alf=`AWK -v ic=$ic 'NR == ic+1 {print $1}' $inpfile` 
+    endif 
+
+    echo $iat_imp 1 $lorb $alf $alf "    # iat nlorb lorb  dvup dvdn">> $file.in_setvorb
+
+    echo " --- $file.in_setvorb ---"
+    cat $file.in_setvorb
+    echo " "
+    if !($?orbu) then 
+      setvorb.x < $file.in_setvorb 
+      if($status) then
+        echo "ERROR: setvorb fails for run_lr4u"
+        goto error
+      endif
+    endif 
+
+    if !($?adjust_ne) then 
+      $runscf 
+      w2k_testerror
+      if( -e .testerror ) then 
+         echo "ERROR: SCF fails at ic=" $ic
+         goto error
+      endif 
+      w2k_save -f $file -s -F -d $savedir/v_$alf
+    else 
+      echo "adjust ne"
+
+    endif 
+
+
+    @ ic ++ 
+  end 
+ 
+sum:
+
+
+  # read the perturbation alfa from case.inlr4u
+  set alfas = ( 0  )
+  set ic=1
+  while ( $ic <= $nconf ) 
+    set alf=`AWK -v ic=$ic 'NR == ic+1 {print $1}' $inpfile`
+    set alfas= ( $alfas $alf ) 
+    @ ic ++
+  end  
+
+  echo "#" $nconf $lorb $natorb $iats_orb \
+        "           nconf lorb natorb iats_orb[1..natorb]"> $outfile      
+
+  # extract occupation numbers from case.scf 
+  foreach alf ( $alfas )
+    set nls0
+    set nls
+
+    set ia = 1
+    set etot=`grep "TOTAL ENERGY" $savedir/v_$alf/$file.scf | tail -n 1 | awk 'NR==1 {print $9}'`
+    while ( $ia <= $natorb )
+
+      # set the atomic tag 
+      if ( $ia > 100 ) then
+        set ia_tag=$iats_orb[$ia]
+      else if ( $ia > 10 ) then
+        set ia_tag=0$iats_orb[$ia]
+      else
+        set ia_tag=00$iats_orb[$ia]
+      endif
+
+      grep :TRA$ia_tag  $savedir/v_$alf/$file.scf | tail -n 2 > lr4u.tmp
+      grep :TRA$ia_tag  $savedir/v_$alf/$file.scf | head -n 2 > lr4u.tmp0
+
+      set nl=`AWK 'BEGIN {nl=0}  NR==1 {nl=nl+$6}; NR ==2 {nl=nl+$6}; END {print nl} ' lr4u.tmp`
+
+      if ( $alf == 0 ) then
+        set nl0=$nl
+      else 
+        set nl0=`AWK 'BEGIN {nl=0}  NR==1 {nl=nl+$6}; NR ==2 {nl=nl+$6}; END {print nl} ' lr4u.tmp0`
+      endif 
+
+      set nls=( $nls $nl )
+      set nls0=( $nls0 $nl0 )
+
+      @ ia ++
+    end
+    echo $alf $nls $nls0 $etot | tee -a $outfile
+  end
+
+lr4u:
+  w2k_lr4u.x <<EOF
+$file 
+$lr4u_nf
+$lr4u_ibg
+$lr4u_ising
+$lr4u_eta
+EOF
+
+  if ( -e $file.in2_bak_lr4u ) then 
+    mv -f $file.in2_bak_lr4u $file.in2$cmplx 
+  endif 
+  exit 0
+ 
+error: 
+  echo "ERROR in run_lr4u"
+  exit 1
+  
+help:
+    cat <<EOF
+  Usage: `basename $0` [options]
+  Options:
+    -c                # for complex vectors (by default, it will be tested automatically
+    -d <savedir>  
+    -f <case name>    # 
+    -h                # show this information 
+    -ibg <1/0>        # set whether considering background screening 
+    -ic0 <0>          # initial config 
+    -nf <lr4u_nf>     # order of fitting polynomial 
+    -orbu <U>          # use runsp_lapw -orb 
+    -p                # parallel running 
+    -sm <smearing>    # use smearing 
+    -sp               # use runsp,otherwise use runspc
+    -st  <start>      # directly start with <start> 
+                      #  scf -- SCF calculations with different perturbation 
+                      #  sum -- extract data from SCF results
+                      #  lr4u  -- calculate U    
+EOF

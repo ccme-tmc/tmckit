@@ -1,0 +1,408 @@
+#!/usr/bin/env python
+from ase import Atoms
+from ase.calculators.emt import EMT
+from ase.constraints import FixAtoms,FixedPlane
+from ase.optimize import QuasiNewton
+from ase.build import fcc111, add_adsorbate
+from ase.io import read, write
+from ase.calculators.vasp import Vasp
+import sys, os, shutil, glob, os.path
+import ase.calculators.vasp
+from ase_utils import *
+from vasp_utils_jh import *
+from math import *
+from ase.visualize import view
+from surf_utils import * 
+
+def show_help_info():
+    myname = sys.argv[0]
+    print "\n"+myname + ": a Python script to prepare or analyze the adsorption on bimetallic surfaces\n"
+    print "   Usage: " + os.path.basename(myname) + " [options]"\
+     + """
+    Options:
+    -h                          # display this help information
+    -D                          # set the debug mode 
+ 
+    -r     <reaction>           # the reaction to be considered 
+    -ini   <ini_in>           # the information for the initial structure    e.g. "CH4,top,3.0,30" or "O,ontop,1.5;CH,bridge;1.0" 
+    -fin   <fin_in>           # the info for the final state structure 
+
+
+    -d     <dir_run=''>         # indicate where to run the calculations 
+    -tag   <tag>                # additional tag for directory name 
+    -m     <method_ts=cneb5>    # the method used to calculate TS energy, 'e.g. cneb5', 
+                                  used for mode=3
+    -mode  <mode=0>             # mode = 0 --> create initial and final state structure and view only 
+                                #        1 --> create input files for initial and final state relaxation 
+                                #        2 --> create input files for initial and final state and run the full TS calculations (not implemented!) 
+                                #        3 --> read the results for initial and final state relaxation 
+    -o     <out_results>       
+
+    -np    <nproc=0>            # the number of processes used for running the calculations
+
+    -c     <composition= Ni >   # the composition=metal considered. It can be the name of a single metal, 
+                                  or the name of two metals with a configuration indicator, e.g. Ni,Cu,<config>
+                                  config can be: top, sub, mixtop, mixsub, bulk11, bulk13 
+    -latt  <latt=''>               # the lattice constant(s) as a string of float numbers seperated by comma, 
+                                   e.g. '3.4' or '2.51,4.07' 
+    -size  <size_slab=2,2,4>    # the size of the slab, e.g. 3,3,4  for a four-layer 3x3 slab
+    -surf  <surf_type=fcc111>   # which surface 
+    -vac   <vac_width=12.0>     # the width of the vacuum region
+    -kpt   <kpoints='4,4,1'>    #  the number of k-points 
+    -fix   <fix_layers=2>       # fix the bottom layers indicated by fix_layers, 
+                                  fix_layers=2 means that the two layers in the bottom are fixed 
+
+    -ec    <encut=300.0>        # the ENCUT 
+    -etol  <etol = 1.e-5>       # convergence tolerance for the energy 
+    -ftol  <ftol = 0.01>        # the tolerance for the force 
+    -xc    <xc=rpbe>            #  xc name 
+    -ispin <ispin=2>            # ispin 
+
+    """
+    sys.exit(0)
+
+if len(sys.argv) == 1 or f_Getopt('-h',0,False): show_help_info()
+debug       = f_Getopt('-D',0,False)
+
+info_cmd = ' '.join(sys.argv)
+if debug:
+    print "You are running ",info_cmd
+
+# get the current working directory
+wdir = os.getcwd()
+dir_ini = 'ini'
+dir_fin = 'fin'
+
+out_results   = f_Getopt('-o', 1, 'results.dat')
+
+composition =  f_Getopt('-c',1,'Ni') 
+reaction      =  f_Getopt('-r', 1, '') 
+ini_in        =  f_Getopt('-ini',1,'')
+fin_in        =  f_Getopt('-fin',1,'') 
+
+size_slab_in   =  f_Getopt('-size',1,'2,2,4')
+surf_type     =  f_Getopt('-surf',1,'fcc111') 
+method_ts     =  f_Getopt('-m',1, 'cneb5') 
+mode          =  f_Getopt('-mode',1, 0) 
+
+ftol          =  f_Getopt('-ftol', 1, 0.05) 
+etol          =  f_Getopt('-etol', 1, 1.e-5) 
+encut         =  f_Getopt('-ec',1, 300.0 ) 
+xc            =  f_Getopt('-xc',1, 'rpbe')
+ispin         =  f_Getopt('-ispin',1, 2  ) 
+dir_run       =  f_Getopt('-d',1, '')
+
+latt          =  f_Getopt('-latt',1,'') 
+mol_name      =  f_Getopt('-mol',1, '') 
+nproc         =  f_Getopt('-np',1, 0 ) 
+site_ads      =  f_Getopt('-site',1, 'fcc') 
+tag           =  f_Getopt('-tag',1, '') 
+vac_width     =  f_Getopt('-vac', 1,12.0) 
+kpoints_in     =  f_Getopt('-kpt', 1,'4,4,1')  
+fix_layers    =  f_Getopt('-fix', 1, 2) 
+
+## read the results for initial and final state relaxtion calculations
+if mode == 3:
+    if dir_run == '':
+        dir_run = '.'
+        sys_name = os.path.basename(wdir)
+    else:
+        sys_name = dir_run 
+
+    os.chdir(dir_run) 
+    os.chdir(dir_ini) 
+    slab_i = ase.io.read('CONTCAR',format='vasp')
+    ene_ini =  vasp_getout('etot')
+    os.chdir('..') 
+    write('ini.png',slab_i) 
+
+    os.chdir(dir_fin)
+    slab_f = ase.io.read('CONTCAR',format='vasp')
+    ene_fin =  vasp_getout('etot')
+    os.chdir('..')
+    write('fin.png',slab_f) 
+
+    # check whether a TS calculation has been done successfully
+    if os.path.exists(method_ts):
+        os.chdir(method_ts)
+
+        # extract NEB results 
+        os.system('nebresults.pl') 
+
+        ifile = open('neb.dat','r') 
+        lines = ifile.readlines() 
+        ifile.close() 
+
+        i_ts = 0 
+        ene_ts = -1.0e20
+        n_images = len(lines) - 1 
+        for i in range(1,n_images):
+            tmp = lines[i].split()
+            ene = float(tmp[2])
+            if debug:
+                print "#image=",i," Energy=",ene 
+
+            if ene > ene_ts:
+                ene_ts = ene 
+                i_ts = i 
+
+        dir_ts='%02d'%(i_ts) 
+
+        os.chdir(dir_ts)
+        if debug:
+            print "The image index corresponding to TS:",dir_ts
+
+        slab_ts = ase.io.read('CONTCAR',format='vasp') 
+        ene_ts =  vasp_getout('etot') 
+        os.chdir('..')
+        write('../ts'+'-'+method_ts+'.png',slab_ts)
+        os.system('convert mep.eps '+'../mep-'+method_ts+'.png')
+
+        print "#%19s %12s %12s %12s %12s %12s"%('surface','E(ini)','E(fin)','E(TS)','Delta_Er','Delta_Ea')
+        print "%20s %12.6f %12.6f %12.6f %12.3f %12.3f"%(sys_name, ene_ini, ene_fin,  ene_ts, ene_fin - ene_ini, ene_ts - ene_ini)
+        os.chdir(wdir)
+        if not os.path.exists(out_results):
+            ofile = open(out_results,'w')
+            ofile.write("#%19s %12s %12s %12s %12s %12s\n"%('surface','E(ini)','E(fin)','E(TS)','Delta_Er','Delta_Ea'))
+        else:
+            ofile = open(out_results,'a')
+        ofile.write("%20s %12.6f %12.6f %12.6f %12.3f %12.3f\n"%(sys_name, ene_ini, ene_fin,  ene_ts, ene_fin - ene_ini, ene_ts - ene_ini))
+        ofile.close()
+
+    else:
+        os.chdir(wdir)
+        print "#%19s %12s %12s %12s (in eV)"%('surface','E(ini)','E(fin)','Delta_E') 
+        print "%20s %12.6f %12.6f %12.3f"%(sys_name, ene_ini, ene_fin,  ene_fin - ene_ini)
+
+    sys.exit(0) 
+
+
+if reaction == '' and (ini == '' and fin == ''):
+    print "ERROR: no reaction information is provided!"
+    show_help_info()
+
+l_tailored = False 
+if ini_in != '' and fin_in != '':
+    l_tailored = True 
+    if reaction == '':
+        reaction = 'tailored'
+
+tmp = size_slab_in.split(',') 
+if len(tmp) < 3:
+    print "ERROR: wrong input for -size"
+    show_help_info()
+else:
+    size_slab = []
+    for i in range(3):
+        size_slab.append(int(tmp[i]))
+
+kpoints = []
+tmp = kpoints_in.split(',') 
+for i in range(3):
+    kpoints.append(int(tmp[i]))
+
+# create the bimetallic surface 
+surf, surf_name = create_bimetal_surf(composition, surf_type, size_slab, latt,fix_layers, vac_width)
+
+# prepare the initial and final structure 
+
+if l_tailored: 
+    # extract the info about the initial structure 
+    ini_info = parse_ads_inp(ini_in) 
+    fin_info = parse_ads_inp(fin_in) 
+
+    slab_i = surf.copy()
+
+    nlayers = max(surf.get_tags())
+    mask = [atom.tag > nlayers - fix_layers for atom in slab_i]
+    fix_bottom = FixAtoms(mask=mask)
+    constr_ini = [fix_bottom] 
+
+    for i in range(len(ini_info)):
+        mol_name = ini_info[i][0]
+        mol = mol_set[mol_name][0]
+        pos = ini_info[i][1]
+        h_ads = ini_info[i][2]
+        rot = ini_info[i][3]
+        mol.rotate(rot,'z') 
+        off = ini_info[i][4]
+        add_adsorbate(slab_i, mol, abs(h_ads), position= pos,offset=off)
+
+        if h_ads < 0.0:
+            nat_mol = len(mol) 
+            nat_all = len(slab_i) 
+            constr_atom = FixedPlane(nat_all - nat_mol, (0, 0, 1))
+            constr_ini.append(constr_atom) 
+
+    slab_i.set_constraint(constr_ini) 
+
+    slab_f = surf.copy()
+    mask = [atom.tag > nlayers - fix_layers for atom in slab_f]
+    fix_bottom = FixAtoms(mask=mask)
+    constr_fin = [fix_bottom]
+    for i in range(len(fin_info)):
+        mol_name = fin_info[i][0]
+        mol = mol_set[mol_name][0]
+        pos = fin_info[i][1]
+        h_ads = fin_info[i][2]
+        rot = fin_info[i][3]
+        mol.rotate(rot,'z')
+        off = fin_info[i][4]
+        add_adsorbate(slab_f, mol, abs(h_ads), position= pos,offset=off)
+
+        if h_ads < 0.0:
+            nat_mol = len(mol)
+            nat_all = len(slab_f)
+            constr_atom = FixedPlane(nat_all - nat_mol, (0, 0, 1))
+            constr_fin.append(constr_atom) 
+
+    slab_f.set_constraint(constr_fin)
+    
+elif reaction == 'CH-fh':
+    slab_i = surf.copy()
+    add_adsorbate(slab_i, mol_CH,mol_set['CH'][1] , 'fcc',offset=1)
+    slab_f = surf.copy()
+    add_adsorbate(slab_f, mol_C, mol_set['C'][1],  position='fcc',offset=1)
+    add_adsorbate(slab_f, mol_H, mol_set['H'][1],  position='hcp')
+
+elif reaction == 'CH-hf':
+    slab_i = surf.copy()
+    add_adsorbate(slab_i, mol_CH,mol_set['CH'][1] , 'hcp')
+    slab_f = surf.copy()
+    add_adsorbate(slab_f, mol_C, mol_set['C'][1],  position='hcp')
+    add_adsorbate(slab_f, mol_H, mol_set['H'][1],  position='fcc',offset=1)
+
+elif reaction == 'CH-ff':
+    slab_i = surf.copy()
+    add_adsorbate(slab_i, mol_CH,mol_set['CH'][1] , 'fcc')
+    slab_f = surf.copy()
+    add_adsorbate(slab_f, mol_C, mol_set['C'][1],  position='fcc')
+    add_adsorbate(slab_f, mol_H, mol_set['H'][1],  position='fcc',offset=(1,0))
+
+elif reaction == 'CH-hh':
+      slab_i = surf.copy()
+      add_adsorbate(slab_i, mol_CH,mol_set['CH'][1] , 'hcp')
+      slab_f = surf.copy()
+      add_adsorbate(slab_f, mol_C, mol_set['C'][1],  position='hcp')
+      add_adsorbate(slab_f, mol_H, mol_set['H'][1],  position='hcp',offset=(1,0))
+
+elif reaction == 'CH2-fh':
+    slab_i = surf.copy()
+    add_adsorbate(slab_i, mol_CH2, mol_set['CH2'][1], position='fcc',offset=1)
+
+    slab_f = surf.copy()
+    add_adsorbate(slab_f, mol_CH, mol_set['CH'][1], position='fcc',offset=1)
+    add_adsorbate(slab_f, mol_H,   mol_set['H'][1], position='hcp',offset=(0,0))
+
+elif reaction == 'CH2-ff':
+    slab_i = surf.copy()
+    mol_CH2.rotate(120,'z') 
+    add_adsorbate(slab_i, mol_CH2, mol_set['CH2'][1], position='fcc')
+    slab_f = surf.copy()
+    add_adsorbate(slab_f, mol_CH, mol_set['CH'][1], position='fcc')
+    add_adsorbate(slab_f, mol_H,   mol_set['H'][1], position='fcc',offset=(1,0))
+
+elif reaction == 'CH2-hh':
+    slab_i = surf.copy()
+    mol_CH2.rotate(180,'z') 
+    add_adsorbate(slab_i, mol_CH2, mol_set['CH2'][1], position='hcp')
+    slab_f = surf.copy()
+    add_adsorbate(slab_f, mol_CH, mol_set['CH'][1], position='hcp')
+    add_adsorbate(slab_f, mol_H,   mol_set['H'][1], position='hcp',offset=(1,0))
+
+elif reaction == 'CH3-fh':
+    slab_i = surf.copy()
+    mol_CH3.rotate(120,'z')
+    add_adsorbate(slab_i, mol_CH3, mol_set['CH3'][1],position='fcc',offset=1)
+ 
+    slab_f = surf.copy()
+    mol_CH2.rotate(120,'z') 
+    add_adsorbate(slab_f, mol_CH2, mol_set['CH2'][1],position='fcc',offset=1)
+    add_adsorbate(slab_f, mol_H,   mol_set['H'][1],  position='hcp',offset=(0,0))
+
+elif reaction == 'CH3-ff':
+    slab_i = surf.copy()
+    mol_CH3.rotate(-120,'z')
+    add_adsorbate(slab_i, mol_CH3, mol_set['CH3'][1],position='fcc')
+
+    slab_f = surf.copy()
+    mol_CH2.rotate(-120,'z')
+    add_adsorbate(slab_f, mol_CH2, mol_set['CH2'][1],position='fcc')
+    add_adsorbate(slab_f, mol_H,   mol_set['H'][1],  position='fcc',offset=(1,0))
+
+elif reaction == 'CH3-hh':
+    slab_i = surf.copy()
+    mol_CH3.rotate(-60,'z')
+    add_adsorbate(slab_i, mol_CH3, mol_set['CH3'][1],position='hcp')
+  
+    slab_f = surf.copy()
+    mol_CH2.rotate(-60,'z')
+    add_adsorbate(slab_f, mol_CH2, mol_set['CH2'][1],position='hcp')
+    add_adsorbate(slab_f, mol_H,   mol_set['H'][1],  position='hcp',offset=(1,0))
+
+elif reaction == 'CH4-fh':
+    slab_i = surf.copy()
+    add_adsorbate(slab_i, mol_CH4, 3.0, 'ontop',offset=1)
+
+    # fix the position of C
+    nat_all = len(slab_i)
+    fix_C = FixedPlane(nat_all - 5, (0, 0, 1))
+
+    nlayers = max(surf.get_tags()) 
+    mask = [atom.tag > nlayers - fix_layers for atom in surf]
+    fix_bottom = FixAtoms(mask=mask)
+    slab_i.set_constraint([fix_bottom,fix_C])  
+
+    slab_f = surf.copy()
+    mol_CH3.rotate(-60,'z') 
+    add_adsorbate(slab_f, mol_CH3, mol_set['C'][1], position='fcc',offset=1)
+    add_adsorbate(slab_f, mol_H,   mol_set['H'][1], position='hcp')
+
+#elif reaction == 'CH4-tbf':
+
+
+else:
+    print "ERROR: the reaction %s is not implemented"%(reaction) 
+    sys.exit(0) 
+
+if mode == 0:
+    view(slab_i)
+    view(slab_f) 
+    sys.exit(0)
+
+if dir_run == '':
+
+    dir_run = surf_name + '-' + reaction 
+    if tag != '':
+        dir_run = dir_run + '-' + tag
+
+if not os.path.isdir(dir_run):
+    os.mkdir(dir_run)
+
+### configure the calculator
+calc = ase.calculators.vasp.Vasp(
+    xc=xc,
+    prec = 'Normal',
+    encut = encut,
+    ibrion = 2,
+    nsw = 500,
+    ispin = ispin,
+    ediff = etol,
+    ediffg = -ftol,
+    kpts = kpoints)
+
+# set up the directories to TS calculations 
+if mode == 1:
+    os.chdir(dir_run) 
+    os.system('echo "%s" > info '%(info_cmd))
+
+    ase_run_vasp(slab_i, calc, dir_ini,  init_only = True) 
+    ase_run_vasp(slab_f, calc, dir_fin,  init_only = True)
+
+    os.chdir(wdir) 
+    sys.exit(0) 
+
+# set a local run_vasp.py if necessary
+ase_set_runvasp(nproc)
+
+

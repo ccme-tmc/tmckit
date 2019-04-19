@@ -1,0 +1,93 @@
+#!/usr/bin/env python
+## this file contains functions used for embedded cluster model (ECM) calculations
+import sys,os,shutil
+import commands,string
+from math import *
+from numpy import *
+from io_utils import *
+from data_utils import *
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": this script fits a given set of data by a polynomial f(x) \
+  and then gives the root for f(x) == <val>  \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -h                    # display this help information
+    -f <data_file_name>   # the data file name 
+    -xop  <xop>           # perform some operation on x before fitting 
+    -nfit <nfit>          # 
+    -icx <icx>            # the column used as x
+    -icy <icy>            # the column used as y
+    -np  <np_out>         # the number of data used to calculate the fitting function
+  """
+  sys.exit(1)  
+
+def_debug = False
+def_mode = 0
+def_file=''
+def_val = 0.0 
+def_nfit=2
+
+if f_Getopt('-h',0,False): f_Help_Info()
+file = f_Getopt('-f',1,'')
+icx  = f_Getopt('-icx', 1, 1 )
+icy  = f_Getopt('-icy', 1, 2 )
+nfit = f_Getopt('-nfit',1, 1 )
+xop  = f_Getopt('-xop', 1, '')   
+np   = f_Getopt('-np',  1, 50)
+
+if file == '':
+  print "ERROR: the name of the data file is missing!"
+  f_Help_Info()
+
+data = f_Read_Data(file)
+nrow = len(data)
+ncol = len(data[0])
+
+xdata=[]
+ydata=[]
+for i in range(nrow):
+  xdata.append(float(data[i][icx-1]))
+  ydata.append(float(data[i][icy-1]))
+
+xmin = min(xdata)
+xmax = max(xdata) 
+
+x_var = 'x'
+if xop == 'sqrt': 
+  x_var = "sqrt(x)"
+  for i in range(len(xdata)):
+    xdata[i]=sqrt(xdata[i])
+
+coef = polyfit(asarray(xdata),asarray(ydata),1)
+
+if nfit == 1:
+  (a,b)=(coef[0],coef[1]) 
+   
+  err=0.0
+  for i in range(nrow):
+    x= xdata[i]
+    if xop == 'sqrt':
+      err += (ydata[i] - (a*sqrt(x) + b))**2
+    else:
+      err += (ydata[i] - (a*x+b))**2
+  err /= nrow
+
+  print "Fitting function: f(x) = %12.6f "%(a) + x_var + " + %12.6f"%(b)
+  print "Fitting error (RMS)= %12.4f"%(err)
+
+  ofile = open("pfit-out.dat",'w') 
+  ofile.write("#Fitting function: f(x) = %12.6f "%(a) + x_var + " + %12.6f\n"%(b))
+  ofile.write("# fitting error (RMS)= %12.4f\n"%(err))
+  for i in range(np+1):
+    x= xmin + i*(xmax-xmin)/np
+    if xop == 'sqrt':
+      fx = coef[0]*sqrt(x)+ coef[1]
+    else:
+      fx = coef[0]*x + coef[1]
+    ofile.write(" %12.6f %12.6f\n"%(x,fx))
+  ofile.close()
+
+

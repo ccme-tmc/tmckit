@@ -1,0 +1,67 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from w2k_utils import *
+from struct_utils import *
+from io_utils import *
+from constants import *
+
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to extract the work function \n\
+(ionization potential for insulating systems) results from a wien2k slab calculation \n"
+  print "Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options: 
+    -h               # print out this information 
+    -d <dir>         # which directory
+    -fm <fm>         # indicate whether to use the mimimal unit cell for FM or use the AFM unit cell   
+    -s <spin>        # the spin moment in units of 1/2, 
+                       i.e. the number of unpaired electrons per atom  
+    -st <start>      # 0 - run the calculations 
+                     # 1 - summarize the results 
+    -t <type>        # the type of the system 
+                     #  'NiO'   -- NaCl structure J1 and J2 
+                     #  'KNiF3' -- cubic perovskite   
+    
+  """
+  sys.exit(0)
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+gw_def = [0, 0.0]
+
+dir_out   = f_Getopt('-d',  1, '.' )
+fm_struct = f_Getopt('-fm', 1, 'fm') 
+start     = f_Getopt('-st', 1,  1 )
+spin      = f_Getopt('-s',  1,  2 )
+type_sys  = f_Getopt('-t',  1, 'NiO')
+
+Sz2 = (spin/2)**2
+
+# Get the energy for the FM phase
+if fm_struct == 'fm': 
+  etot_fm  = w2k_get(dir_out+"/fm/fm",'etot')
+else:
+  etot_fm  = w2k_get(dir_out+"/fm2/fm2",'etot')/2.0
+
+if type_sys == 'NiO':
+  etot_afm1 = w2k_get(dir_out+"/afm1/afm1",'etot')/2.0
+  etot_afm2 = w2k_get(dir_out+"/afm2/afm2",'etot')/2.0
+
+  diff1 = (etot_afm1 - etot_fm)*Ry2eV*1000.0
+  diff2 = (etot_afm2 - etot_fm)*Ry2eV*1000.0
+
+  J1 = diff1/(8.0*Sz2)
+  J2 = diff2/(6.0*Sz2) - J1
+  print "%16s %16s %16s %8s %8s"%("E(FM)/Ry","E(AFM1)/Ry","E(AFM2)/Ry","J1/eV","J2(eV)")
+  print "%16.6f %16.6f %16.6f %8.2f %8.2f"%(etot_fm,etot_afm1,etot_afm2,J1,J2) 
+
+if type_sys == 'KNiF3':  # cubic perovskite 
+  etot_afm = w2k_get(dir_out+"/afm/afm",'etot')/2.0
+
+  diff = (etot_afm - etot_fm)*Ry2eV*1000.0
+  J = diff/(2.0*Sz2)
+  print "%16s %16s %8s"%("E(FM)/Ry","E(AFM)/Ry","J/eV")
+  print "%16.6f %16.6f %8.2f"%(etot_fm,etot_afm,J)
+

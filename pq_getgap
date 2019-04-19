@@ -1,0 +1,45 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+from optparse import OptionParser
+import sys,os,copy,re,commands
+
+from common_caseutil import KPointsT
+from py_utils import EmptyFormatter
+from band_utils import f_Band_GetGap, f_Band_Analyse, f_Band_GetVBMFromElectron,f_Band_DetectCrossing
+from qesp_utils import QESP_PW_output,f_QE_ReadBand
+
+
+def Main(ArgList):
+    description = '''Analyse band structure, get band width and band gap of Quantum-Espresso results.'''
+    usage = "%prog [-c] QEOutput"
+    parser = OptionParser(formatter=EmptyFormatter(),usage=usage,description=description)
+    #parser.add_option("--band",dest="stBandFileName",help="Specify the energy data filename; This file should be a space or tabular split text file with all states in one k-points in one row")
+    #parser.add_option("--kpt",dest="stKptFileName",help="Specify the k-point list filename; This file should be a space or tabular split text file with x,y,z coordinate of k-vector in one line. The order must be the same as band file")
+    #parser.add_option("-o",dest="stOutputBandFileName",help="Output band file name")
+    #parser.add_option("--fermi",dest="stFermi",help="The fermi energy ( or VBM ) of the band structure, must be the same unit as band structure value")
+    #parser.add_option("--electron",dest="stElectron",help="The number of electrons in the system of the band structure.")
+    parser.add_option("-c",dest="bCross",default=False,action="store_true",help="Resolve band cross by built-in derivate based method")
+            
+    (options,args) = parser.parse_args(ArgList)
+
+    if ( len(args)!= 2):
+        parser.error("incorrect number of arguments.")
+
+    #read in
+    qOut = QESP_PW_output(args[1])
+    listBand,list_kp = f_QE_ReadBand(args[1])
+    aKPt = KPointsT()
+    aKPt.ReadFromList(list_kp)
+
+    if ( options.bCross):
+        listBand = f_Band_DetectCrossing(listBand,aKPt.GetTurningPoint())
+    
+    fFermi = f_Band_GetVBMFromElectron(listBand,qOut.nElectron)
+
+    f_Band_Analyse(listBand,fFermi)
+    f_Band_GetGap(listBand,fFermi)
+   
+
+if __name__ == "__main__":
+    Main(sys.argv)    

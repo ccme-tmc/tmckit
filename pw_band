@@ -1,0 +1,292 @@
+#!/usr/bin/env python
+
+import re
+import sys
+import os
+import string
+import copy
+import re
+import shutil
+from optparse import OptionParser
+from pw_getgap import *
+from common_caseutil import f_GetCaseName
+from w2k_caseutil import f_w2k_GetW2kDir,f_w2k_GetW2kFilePath
+
+def f_FileExtBatchModify(stPath,list_stExtOld,list_stExtNew):
+    '''
+    Batch modify all file with ExtOld to corresponding ExtNew
+    '''
+    list_stFile = os.listdir(stPath)
+    for stName in list_stFile:
+        stBase,stExt = os.path.splitext(stName)
+        if ( stExt in list_stExtOld ):
+            nIndex = list_stExtOld.index(stExt)
+            shutil.move(stName,stBase+list_stExtNew[nIndex])
+
+def f_Exec_x_lapw(stFile,stArgs,stLogFile=":log",bPrint = True):
+    '''
+    Exec a x_lapw command and print arguments to logfile
+    '''
+    result = os.system("x_lapw -f %s %s" % (stFile,stArgs))
+    if ( bPrint):
+        os.system("echo \" running \" %s >>%s" % (stArgs,stLogFile) )
+    
+    return result
+
+
+def f_Exec_LapwWithSpin(stCasename,stArgs,nSpin):
+    '''
+    Exec lapw program depend on Spin type
+    '''
+    if ( nSpin ==0 ):
+        nExit = f_Exec_x_lapw(stCasename,stArgs) 
+    elif ( nSpin == 1):
+        nExit = f_Exec_x_lapw(stCasename,"-up "+ stArgs)
+    elif ( nSpin == 2):
+        nExit = f_Exec_x_lapw(stCasename,"-up "+ stArgs)
+        nExit = f_Exec_x_lapw(stCasename,"-dn "+ stArgs)
+    return nExit
+
+def f_BandDraw(nSpin=0,nRestart=0,stCasename="",stLatticeName="",stGWExec="",stGWDir="",bGW0=False,bComplex=False,bDOSFermi=False,bOrb=False,bQtl=False,bSo=False):
+    '''
+    Draw band structure.
+    return 0 if OK
+    '''
+    # define extesion suffix for filename
+    stGWtag='_gw'
+    stKStag='_ks'
+    
+    
+    # Get casename if not specific
+    if ( stCasename == ""):
+        stCasename = f_GetCaseName()
+    
+
+    
+    # start from specific position
+    list_stStartMessage=[
+        "the begining",
+        "lapw1",
+        "lapw2",
+        "spah",
+    ]
+    
+    print("%s : start from %s" % ( stCasename, list_stStartMessage[nRestart]  ))
+    
+    # spin-polarized tag
+    stSpin = "" if nSpin == 0 else "up"
+    # complex tag
+    stComplexArgu = "-c" if bComplex else ""
+    #orb tag
+    stOrbArgu = "-orb" if bOrb else ""
+    #so tag
+    stSoArgu = "-so" if bSo else ""
+    #qtl tag
+    stQtlArgu = "-qtl" if bQtl else ""
+    
+    #gw tag
+    bGW =  (stGWExec != "" and stGWDir != "")
+        
+    
+    # init calc
+    
+    
+    
+    if ( nRestart == 0 ):
+        nNEAtomCount = f_GetNonequalAtomCount(stCasename)
+        print("  Number of  nonequivalent atoms %d" % nNEAtomCount  )
+        
+        #create case.insp
+        stCase_insp = "%s.insp" % stCasename
+        if ( not os.path.exists(stCase_insp) ):
+            shutil.copy(f_w2k_GetW2kFilePath("SRC_templates/case.insp"),stCase_insp)
+        
+        #get fermi energy
+        
+        nFile = 2 if ( (bDOSFermi) and os.path.exists("%s.outputt%s" % (stCasename,stSpin) ) ) else 3
+        fFermiEnergy = f_GetFermiEnergy(stCasename,nFile,nSpin)
+        
+        #save old insp file
+        shutil.move(stCase_insp,stCase_insp+".old")
+        #set fermi energy in insp
+        os.popen("awk '{ {if(NR==line) {$2=efermi}}; {print $0}}' line=9 efermi=%f %s.insp.old >%s.insp" % (fFermiEnergy,stCasename,stCasename) )
+        
+        
+        #prepare klist_band
+        if ( not os.path.exists(stCasename+ ".klist_band")):
+            if ( stLatticeName=="" ):
+                dict_stLattice= {'F':'fcc','B':'bcc','H':'hcp'}
+                stLatticeSymbol=f_ReadStructType(stCasename+".struct")
+                if ( dict_stLattice.has_key(stLatticeSymbol) ):
+                    stLatticeName = dict_stLattice[stLatticeSymbol]
+                else:
+                    print("Template klist of struct type %s does not exist, generate it yourself" % stLatticeSymbol)
+                    return 1
+            try:
+                shutil.copy(f_w2k_GetW2kFilePath("SRC_templates/%s.klist" % stLatticeName),stCasename+".klist_band")
+            except (IOError, os.error) as why:
+                print("error:" + str(why))
+                print("Fail to find appropriate klist_band")
+                print(" -- try to use xcrysden to generate one !! ")
+         
+    if (nRestart <= 1):
+        print("---")
+        print("--- lawp1 ---")
+        print("---")
+        stArgs =  "%s %s lapw1 -band" % ( "-c" if bComplex else "", "-orb" if bOrb else "" )
+        
+        nExit = f_Exec_LapwWithSpin(stCasename,stArgs,nSpin)
+        if ( nExit != 0):
+            return nExit
+
+    
+    #do lapw_so
+        if ( bSo ):
+            print("---")
+            print("--- lawpso ---")
+            print("---")
+            stArgs = "%s %s %s lapwso" % ( stComplexArgu, stSpin, stOrbArgu )
+            nExit = f_Exec_x_lapw(stCasename,stArgs)
+            if ( nExit != 0):
+                return 1
+        
+        #generate case.energy_gw and case.vector_gw
+        if ( bGW ):
+            #set GW argument
+            stGWArgs = " -band %s %s %s" % ( "-gw "+stGWExec if stGWExec <> "" else "",
+                                            "-gwdir "+ stGWDir if stGWDir <>"" else "",
+                                            "-usegw0" if bGW0 else ""
+                                            ) 
+            nExit = os.system("run_gwnvf -f %s -s %s %s" % (stCasename,str(nSpin),stGWArgs ))
+            # if error , just skip but not exit
+            if ( nExit != 0 ) :
+                print("ERROR when run_gwnv" )
+                print("gw part is neglected")
+            
+            fFermiEnergyGW = f_GetFermiEnergyGW(stCasename,stGWDir)
+            print("GW Quasiparticle Fermi energy (Ry.)="  + str(fFermiEnergyGW))
+            #set fermi energy in GW
+            os.system("awk '{ {if(NR==line) {$2=efermi}}; {print $0}}' line=9 efermi=%f %s.insp >%s.insp.gw" % ( fFermiEnergyGW,stCasename,stCasename )  )
+        
+    #lapw2
+
+    
+    
+    if ( nRestart <= 2):
+        if ( bQtl ):
+            # %s : complex , eece (always no),para(always no),so
+            stArgs =  "%s  -qtl -band %s %s %s lapw2" % ( stComplexArgu,"","",stOrbArgu )
+            nExit = f_Exec_LapwWithSpin(stCasename,stArgs,nSpin)
+            if ( nExit != 0):
+                return nExit
+            
+            if (bGW):
+                #file to save
+                list_stExtToSave = [x+stSpin for x in ["qtl","energy","vector"]]
+                list_stExtToLoad = [x+stSpin for x in ["energy","vector"]]
+                
+                #save KS files and load GW files
+                list_stFile = os.listdir(os.getcwd())
+                for stName in list_stFile:
+                    stBase,stExt = os.path.splitext(stName)
+                    if ( stExt in list_stExtToSave ):
+                        shutil.move(stName,stName+stKStag)
+                    if ( stExt in list_stExtToLoad):
+                        shutil.move(stName+stGWtag,stName)
+                
+                #calculate again
+                nExit = f_Exec_LapwWithSpin(stCasename,stArgs,nSpin)
+                if ( nExit != 0):
+                    return nExit
+                
+                #restore files
+                list_stFile = os.listdir(os.getcwd())
+                for stName in list_stFile:
+                    stBase,stExt = os.path.splitext(stName)
+                    if ( stExt in list_stExtToSave ):
+                        shutil.move(stName,stName+stGWtag)
+                        shutil.move(stName+stKStag,stName)
+                        
+    #spaghetti         
+    if ( nRestart <= 3):
+        print('---')
+        print('--- spagh ---')
+        print('---')
+        list_stInput = ["energy"+stSpin ]
+        if ( bQtl ):
+            list_stInput.append("qtl"+stSpin)
+        list_stOutput=["spaghetti%s_ene" % stSpin, "spaghetti%s_ps" % stSpin, "bands%s.agr" % stSpin ]
+        
+        if ( bGW ):
+            f_FileExtBatchModify(os.getcwd(),list_stInput,[x+stKStag for x in list_stInput])
+            f_FileExtBatchModify(os.getcwd(),[x+stGWtag for x in list_stInput],list_stInput)
+            
+            shutil.move(stCasename+".insp",stCasename+".insp.ks")
+            shutil.copy(stCasename+".insp.gw",stCasename+".insp")
+            
+            stArgs = "%s %s %s spaghetti" % (stComplexArgu,stSoArgu,stQtlArgu)
+            f_Exec_LapwWithSpin(stCasename,stArgs,nSpin)
+            
+            #restore files
+            f_FileExtBatchModify(os.getcwd(),list_stInput,[x+stGWtag for x in list_stInput]) 
+            f_FileExtBatchModify(os.getcwd(),[x+stKStag for x in list_stInput],list_stInput)
+            #save gw result
+            f_FileExtBatchModify(os.getcwd(),list_stOutput,[x+stGWtag for x in list_stOutput])
+            
+            shutil.copy(stCasename+".insp.ks",stCasename+".insp")
+        
+        stArgs = "%s %s %s spaghetti" % (stComplexArgu,stSoArgu,stQtlArgu)
+        f_Exec_LapwWithSpin(stCasename,stArgs,nSpin)
+    
+    return 0
+    pass
+
+
+def Main_w2k_band(ArgList):
+    usage = "basename  [options]"
+    parser = OptionParser(usage)
+    parser.add_option("-f",dest="stCasename",default="",help="Wien2K casename ( needed only when DIR name is not casename ) ")
+    parser.add_option("-c",dest="bComplex",default=False,action="store_true",help="complex calculation")
+    parser.add_option("--dosfermi",dest="bDOSFermi",default=False,action="store_true",help="Use Fermi in the DOS calculation")
+    parser.add_option("-l",dest="stLatticeName",default="",help="Lattice name")
+    parser.add_option("--gw",dest="stGWExec",default="",help="GW Executable program name(set both gw and gwdir will enable GW calculation)")
+    parser.add_option("--gwdir",dest="stGWDir",default="",help="Subirectory that contains GW data(set both gw and gwdir will enable GW calculation)")
+    parser.add_option("--usegw0",action="store_true",dest="bGW0",default=False,help="Use GW0 but not G0W0")
+    parser.add_option("--orb",action="store_true",dest="bOrb",default=False,help="for orb (LDA+U etc.) calculations ")
+    parser.add_option("--qtl",action="store_true",dest="bQtl",default=False,help="include band character ")    
+    parser.add_option("-s",type="int",dest="nSpin",default=0,help="option for spin polarized cases.\n0 -- spin-unpolarized\n1 -- spin up\n2 -- spin and down\nfor spin-orbit coupling\n")
+    parser.add_option("--so",action="store_true",dest="bSo",default=False,help="for spin-orbit coupling")
+    parser.add_option("-r",dest="nRestart",default=0,help="Option for restart bandplot.\n0 -- start from the beginning (create *.insp)\n1 -- start from lapw1\n2 -- start from lapw2 (if -qtl present)\n3 -- start from spaghetti ")
+    
+    (options,args) = parser.parse_args(ArgList)
+    if ( len(args) > 1    ):
+        parser.print_help()
+        parser.error("There are unknown options.")
+        
+    result = f_BandDraw(
+        options.nSpin,
+        int(options.nRestart),
+        options.stCasename,
+        options.stLatticeName,
+        options.stGWExec,
+        options.stGWDir,
+        options.bGW0,
+        options.bComplex,
+        options.bDOSFermi,
+        options.bOrb,
+        options.bQtl,
+        options.bSo)
+    
+    if ( result <> 0):
+        print("error in w2k_run_band")
+        
+    return result
+        
+    
+
+
+
+
+
+if __name__ == "__main__":
+    Main_w2k_band(sys.argv)

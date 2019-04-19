@@ -1,0 +1,161 @@
+#!/usr/bin/env python
+
+import sys, os, shutil, glob, os.path
+from w2k_utils import *
+from struct_utils import *
+from bandstruct import *
+
+myname_full = sys.argv[0]
+myname = os.path.basename(myname_full)
+
+
+def f_Help_Info():
+    print "\n  " + myname_full + ": a Python script to calculate a series of similar calculations (HighThroughput) \n"
+    print "  Usage: " + myname + " [options]"\
+    + """
+  Options:
+    -h               # print out this help information
+    -D               # set the debug mode
+    -di <dir_init>   # the directory where initial structure files (in the WIEN2k struct format) 
+                       are stored (only valid for mode=0)  
+    -d  <dir_run>    # the directory in which all running cases are stored 
+    -j  <job_cmd>    # the job command  
+    -m <mode=1>      # mode = 0 : starting from initial struct files and the given directory (provided by -di <dir_init> 
+                     # mode = 1 : it is assumed that each case, corresponding to a subdirectory in dir_run 
+                       has been properly initialized, so that one can just run job_cmd in each directory directly
+    -t tag=''        # the tag used to indicate the cases to be considered 
+    -clean           # clean mode: running the command job_cmd without writing anything by this script  
+  """
+    sys.exit(0)
+
+
+if f_Getopt('-h', 0, False): f_Help_Info()
+
+def_job = "echo test; pwd"
+
+debug =    f_Getopt('-D', 0, False)
+dir_init = f_Getopt('-di', 1, '.')
+dir_run =  f_Getopt('-d', 1, '.')
+job_cmd =  f_Getopt('-j', 1, def_job)
+mode =     f_Getopt('-m', 1, 1)
+tag  =     f_Getopt('-t', 1, '') 
+lclean =    f_Getopt('-clean', 0, False)
+
+
+# get the current working directory
+wdir = os.getcwd()
+print "Current working directory:", wdir
+
+# set the file to store wien2k standard output
+
+info = "#     "
+info = info + "\tCase Name"
+
+# check whether job_cmd is a file, if yes, get its full path
+
+if os.path.isfile(job_cmd):
+    job_cmd = os.path.abspath(job_cmd)
+
+print "\nThe job to be run:", job_cmd
+
+# setup the output directory
+if not os.path.isdir(dir_run):
+    if debug: 
+        print "Create the output directory " + dir_run
+    os.mkdir(dir_run)
+
+# mode = 0 --> read struct files from dir_init, and for each struct file, named case.struct,
+#  create a sub-directory dir_run/case, and run job_cmd in dir_run/case
+
+if mode == 0:
+    # get all struct files from dir_init
+    struct_all = glob.glob(dir_init + "/*"+tag+"*.struct")
+    n_cases = len(struct_all)
+
+    cases_all = []  # collection of case names with the directory name
+    for i_case in range(n_cases):
+        cases_all.append(os.path.splitext(struct_all[i_case])[0])
+
+else:
+    cases_orig = glob.glob(dir_run + "/*"+tag+"*")
+
+    if debug:
+        print "cases_orig:", cases_orig
+
+    cases_all = []
+
+    for i in range(len(cases_orig)):
+        case = cases_orig[i]
+        case_name = os.path.basename(case)
+
+        if os.path.isdir(case):  
+            cases_all.append(case)
+        else:
+            print "WARNING: %s is not a directory" % (case)
+
+    n_cases = len(cases_all)
+
+# sort all cases
+cases_all.sort()
+
+print "\n Cases to be investigated:"
+for i in range(n_cases):
+    print "%6d %s" % (i + 1, cases_all[i])
+print "\n"
+
+for i_case in range(n_cases):
+
+    os.chdir(wdir)
+
+    # check whether there is a file called STOP in the current directorr
+    if os.path.isfile("STOP"):
+        print "The STOP file is found!"
+        break
+
+    # get the case name
+    case_name = cases_all[i_case] 
+
+    job_log = "run.log"
+
+    print "\n\n\n*************************************************"
+    print "  Run the job for the case:", case_name
+    print "***************************************************\n"
+
+    # create the job directory
+    dir_job = case_name
+
+    if mode == 0:    # starting from struct file 
+        # get the case name
+        file_name_full = cases_all[i_case] + ".struct"
+        file_name = os.path.basename(file_name_full)
+        case_name = os.path.splitext(file_name)[0]
+
+        if not os.path.isdir(dir_job):
+            os.mkdir(dir_job)
+        shutil.copy(file_name_full, dir_job)
+
+    # change the current directory to that of dir_job
+    os.chdir(dir_job)
+    
+    # check whether the current directory is already done 
+    if not lclean:
+        if os.path.isfile("DONE"): continue 
+        if os.path.isfile('RUNNING'): continue 
+
+    if lclean:
+        ierr = os.system(job_cmd)
+    else:
+        if not lclean:
+            os.system("touch RUNNING")
+        ierr = os.system(job_cmd + " 1>> " + job_log +" 2>&1 " )
+
+    # run job_mod
+    if ierr != 0:
+        print "ERROR: something wrong ! when running %s for the case %s"%(job_cmd,case_name) 
+        if not lclean: 
+            os.system("touch ERROR") 
+        continue
+    else:
+        if not lclean:
+            os.system("rm -f RUNNING") 
+            os.system("touch DONE") 

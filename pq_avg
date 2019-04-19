@@ -1,0 +1,125 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import os,sys,copy,math,commands,shutil
+from optparse import OptionParser
+import common_caseutil
+from common_caseutil import debug_print,f_env_RunMpirunCommand
+from list_utils import f_List_Op_List
+
+def f_Sta_Average(listData):
+    '''
+    return the average of a set of data
+    '''
+    result = 0
+    for i in listData:
+        result += i
+    return result*1.0/len(listData)
+
+def f_Sta_Variance(listData):
+    '''
+    return the variance of a set of data
+    '''
+    result = 0
+    avg = f_Sta_Average(listData)
+    for i in listData:
+        result += (i-avg)**2
+    return result*1.0/len(listData)
+
+def QESP_CreateAvgInput(stFileName,stDataFile,dWin):
+    '''
+    Create a average.x input file
+    '''
+    fIn = open(stFileName,'w')
+    fIn.write('''1
+%s
+1.D0
+1000
+3
+%f        
+    '''% ( stDataFile,dWin))
+    fIn.close()
+    return
+
+
+def QESP_TestAvgWindow(stFileName,dMinInit,dMaxInit,bTimes=True):
+    '''
+    Try to get a suitable window size for average.x
+    An integer times of window is also a good window size, but may give better result.
+    So it will be searched for 2/3 times
+    :param dMinInit: initial guess range
+    :param bTimes: test 2x and 3x best window and compare with them
+    '''    
+    stFileIn = "test_avg.in"
+    stFileOut = "test_avg.out"
+    listWin = []
+    arPot1 = []
+    #listStep = (2,10,100,1000,10000) # 1/accuracy in this cycle
+    listStep = (1,5,20,100) # it is enough
+    dMin = dMinInit
+    dMax = dMaxInit
+    for nStep in listStep:
+        listWin = []
+        listResult = []
+        print("New search range: %f ~ %f" % (dMin,dMax))
+        nMin = int(dMin * nStep)
+        nMax = int(dMax * nStep)
+        for i in range(nMin,nMax,1):
+            dWin = 1.0 * i / nStep
+            QESP_CreateAvgInput(stFileIn,stFileName,dWin)
+            f_env_RunMpirunCommand("average.x < %s &> %s" % (stFileIn,stFileOut), 1)
+            #read average output
+            fOut = open(stFileOut,'r')
+            arPot = [float(x[30:45]) for x in fOut.readlines()[26:]]
+            print(dWin)
+            if ( i == 10):
+                arPot1 = copy.deepcopy(arPot)
+            #else:
+                #print(min(f_List_Op_List(arPot1, "-", arPot)))
+            listWin.append(dWin)
+            #use middle 1/9 of slab as standard
+            listResult.append(f_Sta_Variance(arPot[len(arPot)/9*4:len(arPot)/9*5]))
+        #print(listResult)
+        dBest = listWin[(listResult.index(min(listResult)))] 
+        print( "Best window: %f in step %f" % (dBest,1.0/nStep))
+        #reset nMin and nMax
+        dMin  = dBest - 1.0 / nStep * 2
+        dMax  = dBest + 1.0 / nStep * 2
+    
+    #test 2/3 times
+    if ( bTimes):
+        dBest1 = dBest
+        dMin1 = min(listResult)
+        print("2x search start...")
+        (dBest2,dMin2) = QESP_TestAvgWindow(stFileName,dBest*2-1,dBest*2+1,False)
+        print("3x search start...")
+        (dBest3,dMin3) = QESP_TestAvgWindow(stFileName,dBest*3-1,dBest*3+1,False)
+        listResult = (dMin1,dMin2,dMin3)
+        dBest = (dBest1,dBest2,dBest3)[listResult.index(min(listResult))]
+        print("The best window in 1,2,3x range is %f" % dBest)
+    
+
+
+    #recreate final result
+    stFileIn = "final.in"
+    QESP_CreateAvgInput(stFileIn,stFileName,dBest)
+    f_env_RunMpirunCommand("average.x < %s &> %s" % (stFileIn,"final.out"), 1)
+    return dBest,min(listResult)
+    
+    
+
+def Main(ArgList):
+    description = "Try to get a suitable window size for average.x, C axis is assumed"
+    usage = "pq_avg DATAFILE"
+    parser = OptionParser(usage=usage,description=description)
+    #parser.add_option("-e",dest="stElement",help="The name of element")
+    (options,args) = parser.parse_args(ArgList)
+    
+    if ( len(args) != 2 ):
+        parser.error("incorrect number of arguments.")
+    
+    QESP_TestAvgWindow(args[1],2.0,6.0)
+
+
+
+if __name__ == "__main__":
+    Main(sys.argv)

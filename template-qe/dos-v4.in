@@ -1,0 +1,10 @@
+&dos
+  prefix = 'pw'
+  outdir = './'
+  ngauss = 0
+  degauss = 0.011
+  emin = -10.0 
+  emax = 20.0 
+  DeltaE = 0.01
+  fildos = 'pw-dos.dat'
+/

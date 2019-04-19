@@ -1,0 +1,274 @@
+!
+!
+! >>>>>> Common declararations 'ciftbx.sys'
+!               
+!        For inclusion in 'ciftbx.f'
+!
+!        Include all user common definitions, but not functions
+         include 'ciftbx.cmv'
+!
+!        Define parameters controlling the sizes of things
+!
+         integer NUMDICT,NUMHASH,NUMBLOCK,NUMLOOP,NUMITEM,NUMIP1,MAXTAB, &
+           MAXBOOK,NUMPAGE,NUMCPP
+!
+!                                 Number of memory resident pages
+         PARAMETER (NUMPAGE=10)
+!                                 Number of characters per page
+         PARAMETER (NUMCPP=16384)
+!                                 Number of entries in dictionary tables
+         PARAMETER (NUMDICT=3200)
+!                                 Number of hash table entries (a modest prime)
+         PARAMETER (NUMHASH=53)
+!                                 Number of entries in data block tables
+         PARAMETER (NUMBLOCK=500)
+!                                 Number of loops in a data block
+         PARAMETER (NUMLOOP=50)
+!                                 Number of items in a loop
+         PARAMETER (NUMITEM=50)
+!                                 Maximum number of tabs in output cif line
+         PARAMETER (MAXTAB=10)
+!                                 Maximum number of simultaneous bookmarks
+         PARAMETER (MAXBOOK=1000)
+!
+!                                 Derived value for loop arrays
+         PARAMETER (NUMIP1=NUMITEM+1)
+!
+!                                 Memory resident page buffer
+         character pagebuf(NUMPAGE)*(NUMCPP)
+!                                 Flag if test_ last called (yes/no )
+         character testfl*3
+!                                 Name of current data item
+         character nametb*(NUMCHAR)
+!                                 Tab character for this machine
+         character tab*1
+!                                 Character buffer for reading lines
+         character buffer*(MAXBUF)
+!                                 Character buffer for tab-expanded lines
+         character bufntb*(MAXBUF)
+!                                 Dictionary validation check
+         character vcheck*3
+!                                 Dictionary data type check
+         character tcheck*3
+!                                 Dictionary category check flag
+         character catchk*3
+!                                 Dictionary flag             
+         character dictfl*3
+!                                 Dictionary names
+         character dicnam(NUMDICT)*(NUMCHAR)
+!                                 Dictionary names with upper/lower case
+         character dictag(NUMDICT)*(NUMCHAR)
+!                                 Dictionary data types
+         character dictyp(NUMDICT)*4
+!                                 Data names in data block
+         character dname(NUMBLOCK)*(NUMCHAR)
+!                                 Data names in data block with u/l case
+         character dtag(NUMBLOCK)*(NUMCHAR)
+!                                 Data type of data item 
+         character dtype(NUMBLOCK)*4
+!                                 Flag signalling output CIF open
+         character pfilef*3
+!                                 Flag signalling loop_ being loaded
+         character ploopf*3
+!                                 Flag signalling text being loaded
+         character ptextf*3
+!                                 Output string buffer
+         character obuf*(MAXBUF)
+!                                 Output prefix string
+         character prefx*(MAXBUF)
+!                                 Dictionary category names
+         character dcname(NUMDICT)*(NUMCHAR)
+!                                 Category names in use
+         character cname(NUMBLOCK)*(NUMCHAR)
+!                                 Dictionary extended types
+         character dicxtyp(NUMDICT)*(NUMCHAR)
+!                                 Datablock extended types
+         character dxtyp(NUMBLOCK)*(NUMCHAR)
+!                                 Format for single precision esd's
+         character*13 esdfmt
+!                                 Format for double precision esd's
+         character*13 edpfmt
+!                                 Format for writing double precision numbers
+         character*8 ndpfmt       
+!                                 Pointers to memory resident pages
+         integer   mppoint(NUMPAGE)
+!                                 Record number containing data item
+         integer   drecd(NUMBLOCK)
+!                                 Character position of item in record
+         integer   dchar(NUMBLOCK)
+!                                 Record number containing tag of item
+         integer   trecd(NUMBLOCK)
+!                                 Character position of tag of item in record
+         integer   tchar(NUMBLOCK)
+!                                 Character position of tag of item in record
+!                                 tab-expanded
+         integer   xchar(NUMBLOCK)
+!                                 Loop block number (0 for non-loop)
+         integer   nloop(NUMBLOCK)
+!                                 Item count in loop packet
+         integer   iloop(NUMBLOCK)
+!                                 Loop line counter; initially zero
+         integer   lloop(NUMBLOCK)
+!                                 Number of items per packet in each loop
+         integer   loopni(NUMLOOP)
+!                                 Number of packets per loop    
+         integer   loopnp(NUMLOOP)
+!                                 Record number of loop header    
+         integer   loorec(NUMLOOP)
+!                                 Character position of loop header    
+         integer   loopos(NUMLOOP)
+!                                 Character position of loop header
+!                                 tab-expanded    
+         integer   loopox(NUMLOOP)
+!                                 Number of last non-blank chars in input 
+         integer   lastch
+!                                 Number of items in current loop packet
+         integer   ploopc
+!                                 Number of items in output loop packet
+         integer   ploopn
+!                                 Number of current loop block
+         integer   loopnl
+!                                 Count of packets in current loop
+         integer   loopct
+!                                 Number of data names in hash table 
+         integer   nhash 
+!                                 Number of data names in data block
+         integer   nname
+!                                 Current number of data name in block
+         integer   iname
+!                                 Number of dictionary names
+         integer   ndict 
+!                                 Number of records in CIF
+         integer   nrecd
+!                                 Record number of requested line
+         integer   irecd
+!                                 Record number of current line
+         integer   jrecd
+!                                 Record number of tab-expanded line
+         integer   jrect
+!                                 Last record number of current block
+         integer   lrecd
+!                                 Character pointer of current input line
+         integer   jchar
+!                                 Character pointer of output CIF line
+!                                 next location to store
+         integer   pchar
+!                                 Character pointer of output CIF line
+!                                 last location stored
+         integer   pcharl
+!                                 Number of data block names stored
+         integer   nbloc
+!                                 Device number of input CIF 
+         integer   cifdev
+!                                 Device number of direct access file
+         integer   dirdev
+!                                 Device number of error message file
+         integer   errdev
+!                                 Device number of output CIF
+         integer   outdev
+!                                 Cached copy of esdlim_
+         integer   esdcac
+!                                 Cached esd digits
+         integer   esddigx
+!                                 Number of Dictionary Category names stored
+         integer   ndcname
+!                                 Bookmark data
+         integer   ibkmrk(4,MAXBOOK)
+!                                 Indices of Dictionary Category 
+!                                 names for items
+         integer   dcindex(NUMDICT)
+!                                 Hash Table for Dic. Category names
+         integer   dchash(NUMHASH)
+!                                 Chain pointers for hash searches
+!                                 of Dictionary Category names
+         integer   dcchain(NUMDICT)
+!                                 Hash table for Dictionary name
+         integer   dichash(NUMHASH)
+!                                 Chain pointers for hash search of
+!                                 Dictionary names
+         integer   dicchain(NUMDICT)
+!                                 Block hash table
+         integer   dhash(NUMHASH)
+!                                 Category hash table
+         integer   chash(NUMHASH)
+!                                 Chain pointers for hash search of
+!                                 block names
+         integer   dchain(NUMBLOCK)
+!                                 Chain pointers for hash search of
+!                                 categories
+         integer   cchain(NUMBLOCK)
+!                                 Number of Category names stored
+         integer   ncname
+!                                 Character starting position of loop items
+         integer   loopch(NUMIP1)
+!                                 String length of loop items
+         integer   loopln(NUMIP1)
+!                                 Record number of loop items
+         integer   looprd(NUMIP1)
+!                                 Indices of Category 
+!                                 names for items
+         integer   cindex(NUMBLOCK)
+!                                 Dictionary pointer from data block
+         integer   ddict(NUMBLOCK)
+!                                 Alias links, 0 for no alias or index
+!                                 of item name in dicnam which
+!                                 is the root of its definitions
+         integer   aroot(NUMDICT)
+!                                 Alias links, 0 for no next alias or
+!                                 index of next alias in dicnam
+         integer   alias(NUMDICT)
+!                                 dcheck result from dicnam
+         integer   xdchk
+!                                 minimum exponent for DP calculations
+         integer   minexp
+!                                 length of output prefix string
+         integer   lprefx
+!                                 Potential tabs in output line
+         integer   itabp(MAXTAB)
+!                                 Count of potential tabs
+         integer   numtab
+!                                 Returned number
+         double precision numbtb
+!                                 Returned standard deviation
+         double precision sdevtb
+!                                 Decimal double precision precision
+         double precision dpprc
+!                                 Decimal double precision minimum power of 10
+         double precision dpmin
+!                                 Decimal single precision precision
+         real      decprc
+!                                 Decimal single precision minimum power of 10
+         real      decmin
+!                                 Internal save of saveo_
+         logical   psaveo
+!                                 Flag for tag being a category key (DDL2) or
+!                                 list_reference (DDL1)
+         logical   catkey(NUMDICT)
+!                                 category pointers to keys
+         integer   ccatkey(NUMDICT)
+!                                 linked list of multiple keys
+         integer   keychain(NUMDICT)
+!
+         common/tbxc/ buffer,dname,dtype,tab,dicnam,dictag,dictyp, &
+                      dictfl,dtag,nametb,testfl,vcheck,tcheck,pfilef, &
+                      ploopf,ptextf,dcname,cname,dicxtyp,dxtyp,esdfmt, &
+                      edpfmt,ndpfmt,prefx,obuf,bufntb,catchk,pagebuf
+!
+         common/tbxi/ nrecd,drecd,trecd,irecd,lrecd,dchar,tchar,xchar, &
+                      ndict,outdev,nloop,iloop,lloop,loopct,loopni, &
+                      loopnp,loopnl,nname,nhash,cifdev,dirdev,errdev, &
+                      jchar,pchar,iname,ploopn,ploopc,nbloc,jrecd, &
+                      lastch,esdcac,esddigx,ndcname,dcindex,ncname, &
+                      cindex,aroot,alias,dchash,dcchain,dichash, &
+                      dicchain,dhash,dchain,ddict,xdchk,loopch,loopln, &
+                      looprd,minexp,lprefx,itabp,numtab,pcharl,loopos, &
+                      loopox,loorec,jrect,ibkmrk,chash,cchain,mppoint, &
+                      keychain,ccatkey
+
+!
+         common/tbxdp/numbtb,sdevtb,dpprc,dpmin
+!
+         common/tbxr/ decprc,decmin
+!
+         common/tbxl/ catkey,psaveo
+!

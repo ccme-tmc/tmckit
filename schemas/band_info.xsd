@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <xs:element name="BandStructure" type="BandsT"/>
+
+    <xs:complexType name="BandsT">
+        <xs:sequence>
+            <xs:element minOccurs="0" maxOccurs="1" name="num_spin" type="xs:int"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="num_electron" type="xs:int"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="vbm" type="xs:decimal"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="fermi" type="xs:decimal"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="gap" type="xs:decimal"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="b_metal" type="xs:boolean"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="kpt" type="KPointsT"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="list_eig" type="TableOfeigenvalues" />
+            <xs:element minOccurs="0" maxOccurs="1" name="list_eig1" type="TableOfeigenvalues" />
+            <xs:element minOccurs="0" maxOccurs="1" name="list_eig2" type="TableOfeigenvalues" />
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="TableOfeigenvalues">
+        <xs:sequence>
+            <xs:element name="Item" type="ArrayOfTableRowOfeigenvalues" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="ArrayOfTableRowOfeigenvalues">
+        <xs:sequence>
+            <xs:element name="Item" type="xs:decimal" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="KPointsT">
+        <xs:sequence>
+            <xs:element minOccurs="0" maxOccurs="1" name="stMode" type="xs:string"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="listKPt" type="ArrayOfkpoints"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="latt" type="Lattice"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="ArrayOfkpoints">
+        <xs:sequence>
+            <xs:element name="Item" type="ArrayOfkpoint" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="ArrayOfkpoint">
+        <xs:sequence>
+            <xs:element name="name" type="xs:string" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="x" type="xs:decimal" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="y" type="xs:decimal" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="z" type="xs:decimal" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="weight" type="xs:decimal" minOccurs="1" maxOccurs="1"/>
+        </xs:sequence>
+    </xs:complexType>
+    
+    <xs:complexType name="Lattice">
+        <xs:sequence>
+            <xs:element minOccurs="1" maxOccurs="1" name="nLatticeType" type="xs:int"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="fLatticeAngle" type="ArrayOf3D"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="fLatticeLength" type="ArrayOf3D"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="__bRaw__" type="xs:boolean"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="__RawPrimitiveVector__" type="ArrayOfMatrix"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="__RawConventionalVector__" type="ArrayOfMatrix"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="ArrayOf3D">
+        <xs:sequence>
+            <xs:element minOccurs="3" maxOccurs="3" name="Item" type="xs:decimal"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="ArrayOfMatrix">
+        <xs:sequence>
+            <xs:element minOccurs="3" maxOccurs="3" name="Item" type="ArrayOf3D"/>
+        </xs:sequence>
+    </xs:complexType>
+
+
+</xs:schema>
+ 
+

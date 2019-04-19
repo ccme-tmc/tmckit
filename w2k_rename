@@ -1,0 +1,64 @@
+#!/bin/csh  -f
+
+  unset verbose 
+  if ($#argv>0) then 
+    if("$1" == '-v' ) then 
+      set verbose
+      shift 
+    endif 
+  endif   
+
+  if($#argv < 2 ) then
+    set wdir=`pwd`
+    set dir_name=$wdir:t
+    echo "current directory name:" $dir_name
+
+    set struct_file=`ls -r *.struct`
+    if ( $#struct_file > 1 ) then 
+      echo "WARNING: more than one struct file are found!"
+      echo "  - the last one is used (Is that the one you want?)"
+      set struct_file=${struct_file[1]}
+    endif 
+    set cur_name=$struct_file:r
+    echo "current structure name:" $cur_name
+
+    if($#argv == 0 ) then 
+      set oldname=$cur_name 
+      set newname=$dir_name
+    else  
+      set oldname=$cur_name
+      set newname=$1
+    endif 
+  else 
+    set oldname=$1
+    set newname=$2
+  endif 
+
+  if ("$oldname" == "$newname" ) then 
+    echo "WARNING: old and new names are identical!"
+    echo " -- nothing is done!"
+    exit 0
+  endif 
+  echo " Rename from $oldname to $newname "
+
+  if($#argv <= 2 ) then 
+    foreach file ( $oldname.* )
+      if($?verbose) echo $file 'extension' $file:e
+      mv -f $file $newname.$file:e
+    end
+    goto stop 
+  else 
+    set dir=$3
+    mkdir -p $dir
+    foreach file ( $oldname.* )
+      if ($?verbose) echo $file 'extension' $file:e
+      cp -f $file $dir/$newname.$file:e
+   end
+ endif 
+
+stop:
+
+ exit 0
+
+error:
+ exit 1

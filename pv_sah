@@ -1,0 +1,166 @@
+#!/usr/bin/env python
+import sys,os,shutil,os.path
+from struct_utils import *
+from constants    import *
+from vasp_utils_jh     import * 
+from io_utils     import *
+from data_utils   import * 
+from band_utils   import f_Band_GetGap
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to perform self-adapted hybrid (SAH) calculation\n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -D                # set the debug mode
+    -h                # display this help information
+    -f   <fn>         # the prefix for various output files 
+    -nb  <nb=0>       # the number of bands   
+    -im  <imax=5>     # the maximal number of iterations for hybrid + optic calculations 
+    -ec  <ecut=0.0>   # ecut  0.0/-1.0 -> PREC = Normal/Accurate
+    -m   <method=pol> # the method to calulate eps_M
+    -t   <tol=0.01>   # tolerance for running a further calculation 
+    -r                # set restart 
+    -hfprec <hfprec=normal> # set HFPREC=fast/normal/accurate
+    -nedos  <nedos=1000>    # set NEDOS used for method='opt'
+    -nkr    <nkred=0>   # set NKRED  in INCAR 
+    -sc     <scr=0.0>    # use the screened hybrid 
+                        scr = 0.0 => PBE0 
+                        scr > 0.0 => HSE, 
+                        scr < 0.0 => Thomas-Fermi screening
+    -p   <np>         # parallel running
+  Examples:
+  """
+  sys.exit(0)
+
+#--------------------------------------------------------------------#
+#                         main body of the script                    #
+#--------------------------------------------------------------------# 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+debug   = f_Getopt('-D',0,False  )
+nb      = f_Getopt('-nb',1, 0    )
+ecut    = f_Getopt('-ec',1,0.0   ) 
+np      = f_Getopt('-p', 1, 1    ) 
+tol     = f_Getopt('-t', 1, 0.01 ) 
+imax    = f_Getopt('-im',1, 6    )
+fn      = f_Getopt('-f', 1, 'sah') 
+method  = f_Getopt('-m', 1, 'pol') 
+hfprec  = f_Getopt('-hfprec',1,'normal')
+nedos   = f_Getopt('-nedos',1, 1000) 
+nkred   = f_Getopt('-nkr', 1, 0) 
+scr     = f_Getopt('-sc',1,0.0   ) 
+restart = f_Getopt('-r',0,False) 
+
+  
+outfile = "OUTCAR"
+
+sah_out = fn+"-summary.dat"
+
+ax_all = []
+emi_all = []
+i0 = 0 
+if restart:
+  data = f_Read_Data(sah_out)
+  for i in range(len(data)):
+    i0 += 1
+    ax_all.append(data[i][1])
+    emi_all.append(data[i][3])
+
+  of_sah = open(sah_out,'a') 
+
+  if debug: 
+    print "Restart from i=%d"%(i0)
+    print "Preceding results:"
+    print "  ax     =", ax_all
+    print "  1/epsm =",emi_all
+
+else:
+  of_sah = open(sah_out,'w') 
+  of_sah.write("#%4s%8s%8s%8s%8s\n"%("i","ax","epsm","1/epsm","Egap"))
+
+# check whether INCAR exists, 
+# if not, create the default INCAR for the band structure calculation 
+if not os.path.isfile("INCAR"): 
+  vasp_incar_band(ecut,nb) 
+
+if ecut > 0.0 :  vasp_set_incar('ENCUT',ecut,'f')  
+
+l_drop_x0 = False # indicate whether x=0.0 is dropped from fitting 
+for i in range(i0,imax):
+  if i==0:
+    ax = 0.0
+  elif i==1 :
+    ax = 0.25 
+  else:
+    ax = vasp_sah_aexx(ax_all,emi_all) 
+
+  # set some common parameters
+  vasp_set_incar("ALGO","Damped")
+  vasp_set_incar("TIME","0.4") 
+
+  if method == 'pol':
+    vasp_set_incar("LCALCEPS",".TRUE.")
+  else:
+    # set the number of bands 
+    if nb == 0:
+      nel_tot = vasp_get_nel()
+      nb = nel_tot*2 
+    
+    vasp_set_incar("NBANDS",nb,'i'   )
+    vasp_set_incar("LOPTICS",".TRUE.")
+    vasp_set_incar("NEDOS",nedos,'i')
+
+  if ax > 0.0:
+    vasp_set_incar("AEXX",ax,'f') 
+    vasp_set_incar("LHFCALC",".TRUE.") 
+    if hfprec == 'fast':
+      vasp_set_incar("PRECFOCK","Fast")
+    elif hfprec == 'normal':
+      vasp_set_incar("PRECFOCK","Normal")
+    else:
+      vasp_set_incar("PRECFOCK","Accurate")
+
+    if nkred != 0:  vasp_set_incar('NKRED',nkred,'i')
+    if scr >    0.00001: 
+      vasp_set_incar("HFSCREEN",scr,'f') 
+    elif scr < -0.00001:
+      vasp_set_incar("HFSCREEN",-scr,'f')
+      vasp_set_incar("LTHOMAS",".TRUE.")
+  
+  ierr = vasp_run(np)
+  if ierr != 0:
+    print "ERROR in running vasp!"
+    sys.exit(1) 
+
+  if method == 'pol':
+    em = max(vasp_getout("epsm_pol",outfile,debug=debug)) 
+  else:
+    em = max(vasp_getout("epsm",outfile,debug=debug))
+
+#  kvecs,ebands,efer = vasp_readband_out(outfile,debug=debug,mode=1)
+#  egap = band_gap_analysis([ebands],efer,kvecs)
+
+  (egap,evbm,efer) = vasp_readband_out(outfile,debug=debug,out=0)
+
+  print ":SAH i, ax, em, 1/em, Egap= %5d %8.3f %8.3f %8.3f %8.3f"%(i, ax, em, 1/em, egap)
+  of_sah.write("%5d %8.3f %8.3f %8.3f %8.3f \n"%(i,ax,em,1.0/em,egap))
+
+  for f in ["INCAR","OUTCAR",'OSZICAR','EIGENVAL','CHGCAR']:
+    shutil.copyfile(f,f + "-%d"%(i))
+
+  if i==0 and egap < 0.1: 
+    l_drop_x0 = True
+    print "WARNING: ax=0.0 leads to (nearly) metallic state and therefore dropped from fitting"
+  else:   
+    ax_all.append(ax)
+    emi_all.append(1.0/em)
+
+  # check convergence, at least two hybrid calculations are performed  
+  if i >= 1 and abs(ax - 1.0/em) < tol: break 
+
+print "The SAH approach is successful within %d hybrid + optic calculations"%(i)
+of_sah.close()
+

@@ -1,0 +1,183 @@
+#!/bin/tcsh -f
+
+# This script run a complete open core DFT calculation starting from an given supercell structure 
+# external progams/scripts used:
+#   wien2k programs 
+#   awk
+#   w2k_chkcmplx 
+#   pw_setoc
+
+echo '-----------------------------------------------------------------'
+echo '                           w2k_opencore                             '
+echo '-----------------------------------------------------------------'
+
+
+
+set fullname=$0
+set bindir=$fullname:h
+set name=$fullname:t
+set logfile=:log
+set ierr = 0
+
+alias cpf 'cp -f'
+alias mvf 'mv -f'
+alias rmf 'rm -f'
+alias sb 'shift; breaksw'       #definition used in switcha
+alias AWK awk
+alias print 'echo  \!:* | tee -a $outfile;'
+
+# initilaize some variables 
+  set jobopt = ( -ec 0.000001 -i 100 )
+  set start = init
+  set stop = clean
+  set sp = 0 
+  set averag = 2
+  set cmplxflag
+  set para 
+  set inoc 
+
+  unset file 
+  unset cmplx 
+  unset w2k_scf 
+  unset save
+
+# parse command-line options 
+  while ($#argv)
+    switch ($1)
+    case -c:
+      set cmplxflag='-c'; sb 
+    case -inoc:
+      shift; set inoc="-i $1"; sb 
+    case -p:          
+      set para='-p' ; set jobopt = ( $jobopt -p ); sb 
+    case -orb:
+      set jobopt = ( $jobopt -orb ); sb
+    case -f:
+      shift; set file=$1; sb 
+    case -sp:
+      shift; set sp=$1; sb
+    case -save:
+      shift; set save=$1; sb 
+
+    case -scf:
+      shift; set w2k_scf="$1"; sb 
+
+    case -start:
+      shift; set start=$1; sb
+    case -stop:
+      shift; set stop=$1; sb 
+    case -h:
+      goto help
+    default:
+      echo "ERROR: Undefined argument" $1
+      goto help 
+    endsw
+  end
+
+# set default vaule of the filename to the name of the working directory
+  if (! $?file) then
+    set file  = `pwd`
+    set file  = $file:t
+  endif
+  echo ' case name:' $file
+ 
+  set outfile = $file.outoc
+  echo " w2k_opencore on " >$outfile  
+  date  >> $outfile 
+  echo ''>>$outfile 
+
+  if !(-e $file.struct ) then
+    echo " ERROR: Current directory does not have $file.struct!"
+    goto error
+  endif
+
+  # check complex
+  w2k_chkcmplx $cmplxflag -f $file
+  if( $status == 1 ) then
+    set cmplx='c'
+    set icmplx=1
+  else if( $status == 0 ) then
+    set cmplx=''
+    set icmplx=0
+  else
+    echo "  ERROR found when chkcmplx"
+    goto error
+  endif
+
+
+  if !($?w2k_scf) then 
+    switch($sp) 
+    case 0: 
+      set w2k_scf="run_lapw     $jobopt"; breaksw
+    case 1: 
+      set w2k_scf="runsp_c_lapw $jobopt"; breaksw
+    case 2:
+      set w2k_scf="runsp_lapw   $jobopt"; breaksw 
+    endsw 
+  endif 
+
+  goto $start
+
+init:
+  pw_setoc $inoc
+  if($status) goto error  
+
+  mvf $file.in1${cmplx} $file.in1${cmplx}_orig
+  mvf $file.in2${cmplx} $file.in2${cmplx}_orig
+  mvf $file.inc $file.inc_orig
+
+  cpf $file.in1${cmplx}_oc $file.in1${cmplx}
+  cpf $file.in2${cmplx}_oc $file.in2${cmplx}
+
+  if($sp == 0 ) then 
+    cpf $file.inc_oc $file.inc
+  else 
+    cpf $file.incup_oc $file.incup
+    cpf $file.incdn_oc $file.incdn
+  endif 
+
+  if( $stop == "init" ) goto done
+
+scf:
+  $w2k_scf  
+  w2k_testerror
+  if( -e .testerror ) goto clean  
+
+  if($?save) then 
+    w2k_save -F -f $file -d $save 
+  endif 
+  if($stop == "scf" ) goto done 
+
+clean:
+  print " ***  Recover to the state before opencore calcualation ***" 
+  w2k_clean $para 
+  mvf $file.inc_orig $file.inc
+  mvf $file.in1${cmplx}_orig $file.in1${cmplx}
+  mvf $file.in2${cmplx}_orig $file.in2${cmplx}
+
+done:
+  echo "STOP $name at " $stop
+  exit 0 
+ 
+error: 
+  echo "ERROR in w2k_opencore"
+  exit 1
+  
+help:
+    cat <<EOF
+  Usage: `basename $0` [options]
+  Purpose:
+    This script run a complete open core DFT calculation starting from an given supercell structure    
+  Options:
+    -c                # indicate complex calculations 
+    -f <case name>    # indicate case name, by default using the directory name as the case name 
+    -h                # show this information 
+    -inoc <inoc_file> # input file for open-core calculations, default: case.inoc 
+    -orb              # use runsp_lapw -orb 
+    -p                # parallel running 
+    -sp <0/1/2>       # (0/1/2 for -- run_lapw,runsp_c_lapw and runsp_lapw, respectively) 
+    -save <savedir>   
+    -scf  <w2k_scf>    # with this, options '-p', '-sp','-orb' are all neglected 
+    -start <init/scf/clean>    # start from init(default), scf, or clean
+    -stop <init/scf/clean>     # stop after init, scf or clean(default) 
+EOF

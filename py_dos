@@ -1,0 +1,91 @@
+#!/usr/bin/env python
+
+import sys,os,shutil
+from w2k_utils import *
+from struct_utils import *
+from bandstruct import * 
+from data_utils import *
+
+myname_full = sys.argv[0]
+myname = os.path.basename(myname_full)
+
+def f_Help_Info():
+  print "\n  "+myname_full + ": a Python script to handle DOS data \n"
+  print "  Usage: " + myname + " [options]"\
+  + """
+  Options:
+    -f <file>        # the name for the data file  
+    -D               # set the debug mode
+    -h               # print out this information
+    -efer            # Fermi energy used to set as zero, in units of Ry 
+    -emax <emax>     # maximum energy in units of eV 
+    -emin <emin>     # minimum energy in units of eV
+    -i <inp_fmt>     # the format of the input data file, currently support w2k/flapw
+    -m <mode>        # what kind of manipuation to be done to the data 
+                     #  0 -- given band energies, plot the DOS
+                     #  1 -- given DOS, perform some further analysis 
+  
+    -nvm <nvm>       # the index for highest valence band, needed if VBM is set as zero 
+
+    -w <width=0.1>   # broadening width      
+    -o <out_file>    # the file name for the output 
+  """
+  sys.exit(0)
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+efer_def = 0.0
+
+debug     = f_Getopt('-d'     , 0,  False    )
+fname     = f_Getopt('-f'     , 1,     ''    )
+efer      = f_Getopt('-efer'  , 1,  efer_def )
+emax      = f_Getopt('-emax'  , 1,   15.0    )
+emin      = f_Getopt('-emin'  , 1,  -15.0    )
+out_file  = f_Getopt('-o'     , 1,   ''      )    
+inp_fmt   = f_Getopt('-i'     , 1,  'w2k'    ) 
+nvm       = f_Getopt('-nvm'   , 1,   0       )
+mode      = f_Getopt('-m'     , 1,   0       )
+width     = f_Getopt('-w'     , 1,  0.1      ) 
+
+fn_pfix = os.path.splitext(fname)[0]
+
+if out_file == '': out_file = fn_pfix + '-dos.dat'
+
+if mode == 0:
+  if inp_fmt == 'w2k':
+    (enk,kvec,kwt) = f_Read_Eband_w2k(fname,debug=debug)
+  elif inp_fmt == 'flapw':
+    (enk,kvec) = f_Read_Eband_flapw(fname,debug=debug)
+
+  nband = len(enk[0])
+  nkp = len(enk) 
+  if nvm > 0:
+    evbm = -1000.0 
+    for ik in range(nkp):
+      if enk[ik][nvm-1] > evbm: evbm = enk[ik][nvm-1]
+    print "Valence Band Maximum=",evbm 
+    efer=evbm     
+
+  for ik in range(nkp):
+    for ib in range(nband):
+      enk[ik][ib] -= efer
+
+elif mode == 1: 
+  dos_old = f_Read_Data(fname) 
+  ncol = len(dos_old[0])
+  x = f_Col(dos_old,1) 
+  dos = []
+  dos = f_Add_Col( dos, x ) 
+  for i in range(ncol-1):
+    y = f_Col(dos_old,i+2) 
+    y_new = f_GaussConvl(x,y,width) 
+    dos = f_Add_Col(dos, y_new) 
+  
+ofile = open(out_file,'w') 
+for i in range(len(dos)):
+  for ic in range(ncol): 
+    ofile.write('%12.6f'%(dos[i][ic]))
+  ofile.write('\n')
+
+ofile.close()
+  

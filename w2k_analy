@@ -1,0 +1,547 @@
+#!/bin/tcsh -f
+# This shell script calculate the density of states (DOS) or band structures 
+#  and prepare for plotting 
+#  A converged self-consistent calculation is assumed done in the current directory
+#
+# external programs/scripts
+#  x_lapw
+#  w2k_kgen
+#  lapw1  
+#  lapw2
+#  pw_bandanaly
+ 
+  set fullname=$0
+  set bindir=$fullname:h
+  set name=$fullname:t
+  set logfile=:log
+
+  alias RUN_KGEN $bindir/w2k_kgen
+  setenv SCRATCH ./
+
+  alias sb 'shift; breaksw'       #definition used in switch
+
+  alias exec   '(x_lapw  -f $file \!:*) ; (if ($status) goto error); (echo " running " \!:*) >>$logfile;'
+  alias print 'echo  \!:* | tee -a $outfile '
+
+  set task='dos'
+  set bandflag
+  set so_lapw2
+  set so_bandanaly 
+  set soflag
+  set eece 
+  set orb 
+  set qtlflag
+  set fermi=1
+  set sp=0
+  set kstag='_ks'
+  set sotag 
+  set w2kv09
+  set cmplxflag
+  set hfflag 
+
+  set start=init
+
+  unset help
+  unset band 
+  unset error
+  unset file
+  unset nkp
+  unset rerun
+  unset so
+  unset so0
+  unset hf 
+
+
+  set nproc=-1
+
+  set full_command="$name $*" 
+
+  while ($#argv)
+    switch ($1)
+    case -c:
+      set cmplxflag='-c'; sb 
+    case -f:
+      shift; set file=$1:q;  sb
+    case -fermi:
+      shift; set fermi=$1; sb 
+
+    case -hf:
+      set hf; set hfflag='-hf'; sb 
+
+    case -eece:
+      set eece="-eece"; sb 
+    case -nkp: 
+      shift; set nkp=$1:q; 
+      if ($nkp == -1) then
+        shift; set nkp=($nkp $1);  shift; set nkp=($nkp $1); shift; set nkp=($nkp $1); sb
+      endif
+    case -orb:
+      set orb="-orb"; sb 
+    case -p:
+      shift; set nproc=$1; sb
+    case -qtl:
+      set qtl; set qtlflag='-qtl'; sb
+    case -r:
+      set rerun; sb 
+    case -s:
+      shift; set sp=$1; sb  
+    case -so:
+      set so ; set sotag='so'; set soflag='-so'; sb
+    case -so0:
+      set so0; set so; set sotag='so'; set soflag='-so'; sb
+    case -st:
+      shift; set start=$1; sb 
+    case -t:
+    case --task:
+      shift; set task=$1; sb 
+    case -v09:
+      set w2kv09="-v09"; sb 
+    case -h:
+      goto help  
+    default:
+      echo "Undefined option $1 !" 
+      goto help ; sb
+    endsw
+  end
+  
+  # if $file not set, set default vaule of the filename to the name of the working directory
+  # make some simple tests to be sure $file is correct 
+  set wdir=`pwd`
+  if !($?file) then
+    set file=$wdir:t
+  endif
+
+  if !(-e $file.struct ) then 
+    echo " ERROR: Current directory does not have $file.struct!" 
+    goto error 
+  endif
+
+  set outfile=$file.outanaly-$task 
+  echo "record output to $outfile"
+  if ( !($?rerun ) && ( -e $outfile ) ) rm -f $outfile 
+  echo "run $name on " `date` >> $outfile 
+
+  print "Full command: ' $full_command '"
+  print "run analysis calculation $task "
+
+  # check complex
+  # If *.in1 does not exist, indicating complex calculations
+  w2k_chkcmplx $cmplxflag -f $file
+  if( $status == 1 ) then
+    set cmplxflag='-c'
+    set cmplx
+  else if( $status == 0 ) then
+    set cmplxflag=''
+    unset cmplx 
+  else
+    echo "  ERROR found when chkcmplx"
+    goto error
+  endif
+
+  # set spin tag 
+  print ' - set spin tag '
+  switch( $sp )
+  case 0:
+    print " -- spin unpolarized"
+    set sptag=''; breaksw
+  case 1:
+    set sptag='up'; breaksw
+    print " -- spin polarized by only considering spin up ( afm or sp_c ) "
+  case 2:
+    print " -- full spin polarized "
+    set sptag='{up,dn}'; breaksw
+  endsw
+  print '  sptag = ' $sptag
+
+  if($?so) then 
+    set so_bandanaly="-so"
+    set so_lapw2="-so"
+    if( ! $?cmplx ) set so_lapw2="-c -so"
+  endif 
+ 
+# set the '-orb' flag. when spin-orbit coupling is considered, the flag '-orb' can be set on 
+# either for "lapw1" or for "lapwso"
+# when the '-so0' flag is present, "-orb" is on for LAPW1
+# eitherwise, it is set to lapwso 
+  set orb_lapw1
+  set orb_so 
+  if($?orb) then 
+    if ( ! $?so ) then 
+      set orb_lapw1='-orb'
+    else 
+      if ($?so0) then 
+        set orb_lapw1='-orb'
+        set orb_so
+      else 
+        set orb_lapw1
+        set orb_so='-orb'
+      endif 
+    endif 
+  endif 
+
+  if ($task == 'band' ) then 
+    set bandflag='-band' 
+  endif 
+
+#
+# To avoid possible confusions, backup SCF files that might be changed  
+#
+
+  if ($?rerun) then 
+    set bakup_files = ( energy$sptag qtl$sptag kgen ) 
+  else 
+
+    set lapw1_files  = ( energy$sptag vector$sptag output1$sptag scf1$sptag )
+    set lapwso_files = ( energyso$sptag vectorso$sptag outputso )
+    set lapw2_files  = ( qtl$sptag output2$sptag scf2$sptag )
+    set kgen_files   = ( klist kgen ) 
+
+    if ( $task == 'dos' ) then 
+      set bakup_files  = ( $kgen_files $lapw1_files $lapw2_files )
+    else 
+      set bakup_files = ( $lapw1_files )
+      if ($?qtl) then
+        set bakup_files = ( $bakup_files $lapw2_files  )
+      endif
+    endif 
+
+    if( $?so ) then 
+      set bakup_files = ( $bakup_files $lapwso_files )  
+    endif 
+  endif 
+
+  if ( "$start" == 'recover' ) goto recover  
+
+  print ' - backup k-vectors files using in SCF'
+  foreach ext  ( $bakup_files )
+    if(-e $file.$ext) then 
+      print "  $file.$ext ---> $file.${ext}-scf "  
+      cp $file.$ext $file.${ext}-scf 
+    endif 
+  end 
+
+#
+# determine the starting point 
+  if ($?rerun) then 
+    goto tetra_spagh
+  endif 
+
+init:
+  print  
+  print '--- Initilization ---'
+  print  
+#
+# Create necessary input files
+#
+  # get the number of atoms
+  set natom=`head -2 $file.struct |tail -1 |cut -c28-30`
+  @ natom ++
+  if ( $task == 'dos' ) then 
+    # create a default int file if it does not exist 
+
+    if !(-e $file.int) then 
+      echo "DOS input" > $file.int
+      echo "-2.00 0.002 2.00 0.011   EMIN, DE, EMAX, Gauss-broadening(>de)" >> $file.int
+      echo "$natom                  NUMBER OF DOS-CASES specified below" >> $file.int
+      echo "0  1   Total" >> $file.int
+ 
+      set iat=1
+      while ( $iat < $natom )
+        echo "$iat 1  Atom$iat-tot" >> $file.int
+        @ iat ++
+      end 
+    endif
+
+    # if the option -nkp present, generate k-mesh  
+    if ( $?nkp ) then
+      RUN_KGEN -s -f $file -nkp $nkp $w2kv09
+      if($status) then
+        echo "ERROR when running RUN_KGEN"
+        goto error
+      endif
+      print " The number of k-points for DOS" $nkp
+    endif
+
+  else 
+    # prepare klist_band in the case of band calculatiob
+    if !(-e $file.klist_band) then
+      set tmp=`head -n 2 $file.struct | tail -n 1`
+      switch ($tmp[1])
+      case F:
+        set lattice="fcc"
+        breaksw;
+      case B:
+        set lattice="bcc"
+        breaksw;
+      case H:
+        set lattice="hcp"
+        breaksw;
+      default:
+        echo "Template klist does not exist, generate it yourself"
+        goto error
+        breaksw
+      endsw
+      cp -f $bindir/src_w2kutils/$lattice.klist $file.klist_band
+      if($status) then
+        echo "Fail to find appropriate klist_band"
+        echo " -- try to use xcrysden to generate one !! "
+        goto error
+      endif
+    endif
+
+    # Prepare *.insp file
+    # copy the template *.insp file if not existing in the current directory
+    if !(-e $file.insp.temp) then 
+      cp -f $WIENROOT/SRC_templates/case.insp $file.insp.temp
+    endif
+  endif
+
+#
+# Calculate KS eigen-vectors by x lapw1  
+#
+lapw1:
+  print 
+  print '--- lapw1 ---'
+  print 
+  set para 
+  if ($nproc >= 0 ) then 
+    set para="-p" 
+  endif 
+
+  if( $nproc > 0 ) then 
+     if ( -e .machines ) then
+      mv -f .machines .machines.old
+    endif
+
+    echo "create .machines file"
+    echo '# .machines for crpa_init' > .machines
+
+    setenv USE_REMOTE 0
+    set host=`hostname `
+    #example for k-point and mpi parallel lapw1/2
+    set i=1
+    while ($i <= $nproc )
+      echo -n '1:' >> .machines
+      @ i1 = $i + 1
+      @ i2 = $i1 - 1
+      echo "$host " >> .machines
+      set i=$i1
+    end
+    echo '' >> .machines
+    echo 'granularity:1' >>.machines
+    echo 'extrafine:1' >>.machines
+  endif
+    
+  switch($sp) 
+  case 0:
+    exec $cmplxflag $para $bandflag lapw1 
+    breaksw 
+  case 1:
+    exec -up $cmplxflag $orb_lapw1 $para $bandflag lapw1
+  case 2: 
+    exec -up $cmplxflag $orb_lapw1 $para $bandflag lapw1
+    exec -dn $cmplxflag $orb_lapw1 $para $bandflag lapw1
+    breaksw
+  default:
+    print "ERROR: wrong option for spin"
+    exit 1
+    breaksw
+  endsw
+
+  if ( $nproc >= 0 ) then 
+    set np=$nproc
+    if ( $np == 0 ) then
+      if( $sp == 0 ) then 
+        set np=`ls $file.scf1_* | wc -w`
+      else
+        set np=`ls $file.scf1up_* | wc -w`
+      endif 
+    endif 
+
+    switch($sp) 
+    case 0:
+      join_vectorfiles $cmplxflag $file $np
+      breaksw 
+    case 1:
+      join_vectorfiles -up $cmplxflag $file $np
+      breaksw 
+    case 2:
+      join_vectorfiles -up $cmplxflag $file $np
+      join_vectorfiles -dn $cmplxflag $file $np
+      breaksw 
+    endsw 
+  endif 
+
+lapwso:
+  if($?so) then 
+    print '--------------------'
+    print '-   lapwso         -'
+    print '--------------------'
+
+    if ($sp == 1) then 
+      exec -dn $cmplxflag $orb $bandflag $para lapw1
+    endif 
+
+    if ( $sp == 0 ) then 
+      exec $cmplxflag $para lapwso
+    else 
+      exec $cmplxflag -up $orb_so $para lapwso
+    endif 
+  endif 
+
+lapw2:
+#
+# Calculate partial charges by x lapw2
+#
+  if ( ( $task == 'band' && $?qtl) || $task == 'dos'  ) then 
+    print 
+    print '--- lapw2 for qtl ---'
+    print 
+
+    switch($sp)
+    case 0:
+      exec $cmplxflag -qtl $bandflag $so_lapw2 $para lapw2 
+      breaksw
+    case 1:
+      cp -f $file.energyup $file.energydn
+      exec $cmplxflag -qtl $bandflag $so_lapw2 $para -up lapw2
+      breaksw
+    case 2:
+      exec $cmplxflag -qtl $bandflag $so_lapw2 $para -up lapw2
+      exec $cmplxflag -qtl $bandflag $so_lapw2 $para -dn lapw2
+      breaksw
+    endsw
+ 
+    if ( $task == 'dos' ) then 
+      print ' '
+      print '------------------- Kohn-Sham Band Gap ----------------------'  
+      pw_bandanaly -f $file -fer $fermi  -s $sp $so_bandanaly | tee -a $outfile
+      print ' '
+    endif 
+  endif 
+
+tetra_spagh:
+
+  if( $task == 'dos' ) then 
+    print ' --- tetra ---'
+
+    set tetra_out = ( dos{1,2,3}ev$sptag dos{1,2,3}$sptag outputt$sptag  ) 
+
+    if( $?rerun )  then 
+      mv $file.kgen-dos $file.kgen 
+
+      foreach ext ( qtl$sptag ) 
+        mv -f $file.$ext-dos  $file.$ext
+      end
+    endif 
+
+    switch($sp)
+    case 0:
+      exec tetra; breaksw
+    case 1:
+      exec -up tetra; breaksw
+    case 2:
+      exec -up tetra; exec -dn tetra; breaksw
+    endsw
+
+  else   # calculate band structure 
+    print '--- spagh ---'
+
+    # make a copy of original KS input/output files 
+    if($?qtl) then
+      set spagh_inp = ( energy$sotag$sptag qtl$sptag )
+    else
+      set spagh_inp = ( energy$sotag$sptag )
+    endif
+    set spagh_out = ( spaghetti${sptag}_ene spaghetti${sptag}_ps bands${sptag}.agr )
+
+    if( $?rerun ) then 
+      foreach i ( $spagh_inp ) 
+        mv -f $file.$i-band $file.$i
+      end 
+    endif 
+      
+    # A DOS calculation has been done, then extract the Fermi energy
+    # from $file.outputt which is more accurate than that one in $.scf
+    if ( -e $file.outputt$sptag ) then
+      print "  Extract Fermi energy from DOS output"
+      set efer=`grep -a "#EF" $file.outputt$sptag | tail -n 1 | awk '{print $2}'`
+    else
+      print "  Extract Fermi energy from SCF output"
+      set efer=`grep -a ":FER" $file.scf | tail -n 1 | awk '{print $NF}'`
+    endif
+    print "  KS Fermi Energy=" $efer
+
+    print '------------------- KS Band Gap ----------------------'
+    pw_bandanaly -f $file -efer $efer  -s $sp $so_bandanaly | tee -a $outfile
+
+    awk '{ {if(NR==line) {$2=efer}}; {print $0}}' line=9 efer=$efer $file.insp.temp >$file.insp
+
+    switch ($sp)
+    case 0:
+      exec  $cmplxflag $soflag $qtlflag spaghetti; breaksw
+    case 1:
+      exec  $cmplxflag $soflag $qtlflag -up spaghetti; breaksw
+    case 2:
+      exec  $cmplxflag $soflag $qtlflag -up spaghetti; 
+      exec  $cmplxflag $soflag $qtlflag -dn spaghetti
+     breaksw
+    endsw
+
+  endif 
+
+# recover backuped files 
+recover:
+  print 
+  print '--- save new files and recover backuped SCF files  ---'
+  print 
+  foreach ext  ( $bakup_files )
+    if ( -e $file.${ext} )  then 
+      mv -f $file.${ext} $file.${ext}-$task 
+      print "  $file.${ext} ---> $file.${ext}-$task"
+    endif 
+
+    if ( -e $file.${ext}-scf ) then 
+      print "  $file.${ext}-scf ---> $file.${ext}"
+      mv -f $file.${ext}-scf  $file.${ext}
+    endif 
+
+  end
+  exit 0
+
+error:
+  print " ERROR in w2k_dos"
+  exit 1
+
+help:
+  cat <<EOF 
+  Usage: `basename $0` [options]
+  Options:
+    -c,  --complex    # complex calculation
+    -fermi <0/1/2>    # option for where to extract Fermi energy 
+                      #  0  -- from *.scf
+                      #  1  -- from *.scf2 (default)
+                      #  2  -- from *.qtl    
+    -eece             # for eece calculation
+    -orb              # orb calculation 
+    -f <file>         # filename 
+    -h                # write help and exit 
+    -nkp <nkp>        # Number of kpoints needed for DOS calculations,
+                        if 0 -- run kgen interactively 
+                        if -1 -- followed by nkx nky nkz
+    -p <np>           # run lapw1 in parallel mode
+                      # np=0, using the exisiting .machines, otherwise create .machines using the local machines 
+    -qtl              # add band characters for the "band" plot
+    -r                # re-run the last step (tetra or spaghetti)  
+    -s <0/1/2>        # option for spin polarized cases
+                      #  0 -- spin unpolarized 
+                      #  1 -- spin polarized but only spin up is calculated (for sp_c_lapw or afm_lapw) 
+                      #  2 -- spin polarized 
+    -so               #  with spin-orbit coupling 
+    -so0              #  ask for a perturbative SOC calculation 
+    -st <start>        # start from 
+    -v09                        # use wien2k v09.1 
+    -t/--task <dos/band>  # which task  
+EOF
+
+

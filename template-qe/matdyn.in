@@ -1,0 +1,8 @@
+&input
+    asr='simple'
+    flfrc = 'case.frc'
+    flfrq = 'case.freq'
+    flvec = 'case.modes'
+/
+0
+

@@ -1,0 +1,52 @@
+A Simple Madelung potential calculation program
+
+=========================
+Usage
+=========================
+By default, this program read input from "case.inmad" and write output in "case.outputmad". Just use command "calcmad" to run. case is the folder name of current directory. Otherwise, you can use "calcmad $FILEIN $FILEOUT" to specify input and output files.
+The input file can be generated from WIEN2K struct file. Use 
+    py_initmad
+will convert CASENAME.struct file to calcmad.input, which can be edited later. If -c switch is absent, the current folder name will be treated as CASENAME, which is the default behavior of WIEN2K.
+
+========================
+Note
+========================
+Convergence standard : the convergence standard is a relative standard, and applied independently to R-space and K-space summation. 
+    So the error of the final result, summation of R- and K- results,  may be larger or smaller several order of magnitude, depent of whether they have same sign. 
+    A parameter of 1e-10 may result 1e-7 error in results in practice.
+
+=============================
+The instruction of input file
+==============================
+Line 1: Structure ( 3D1 or 2D1) ;  Method(Direct or Ewald). 
+2D1 means only x-y axis is extended. Only direct method is supported in 2D.
+Line 2: Factor ( Number of structure motif * Max Charge ) ; Alpha ( For Ewald method, represents Gaussian Charge ) ;Converge standard; Output level ( 3 for most detail , 0 for simplest)
+
+Next Line are parameter of crystal
+Line 3: a,b,c ( unit in bohr )  
+Line 4: alpha, beta, gamma angle ( unit in degree )
+Line 5: number of atoms in crystal 
+Line 6: represent an atom. 
+atom name (optional) ; crystal coordinate a ; b ; c ; Charge of this atom; Include this atom in first layer ; Include this atom in second layer ( Only useful in 2D1 calculation )
+Line 6 repeat ${Line5} times.
+
+Line 7: number of non-atom position need to calculate Madelung potential
+Line 8: crystal coordinate a; b; c 
+Line 8 repeat ${Line7} times
+
+Line 9: Distance between 2 layers ( Only useful in 2D1 calculation )
+
+
+===========================
+Output file
+===========================
+Line 1: Madelung constant of Crystal; Energy per cell (eV); Energy per cell(Ry)
+Line 2: Count of atom-site Madelung potential
+Line 3: Madelung Potential (eV); (Ry); Madelung Potential * Charge of  atom at the site ( eV) ; (Ry) 
+Repeat ${Line2} times, in the same order of input file
+
+Line 4: Count of non-atom-site Madelung potential
+Line 5: the same as Line 3
+
+
+

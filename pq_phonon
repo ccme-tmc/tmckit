@@ -1,0 +1,121 @@
+#!/usr/bin/env python
+import os,sys
+from optparse import OptionParser
+from math import *
+from chem_utils import f_Element_Symbol_to_Mass
+from qesp_utils import QESP_PW_input,QESP_ph_input,QESP_matdyn_input,QESP_IO,f_QE_DetectSpeicalKPt,f_QE_DetectSpeicalKPt
+from common_caseutil import f_env_RunMpirunCommand
+
+def f_QE_CreatePhononInputFromSCF(stFileName):
+    '''
+    Create a simple ph.x input from pw.x input
+    :param qIn: the file name of pw.x input
+    '''
+    stCaseName = os.path.splitext(os.path.split(stFileName)[1])[0]
+    qIn = QESP_PW_input(stFileName)
+    
+    pIn = QESP_ph_input()
+    pIn.prefix = qIn.prefix
+    pIn.outdir = qIn.outdir
+    pIn.fildyn = stCaseName+".ph.dyn"
+    pIn.fildrho = stCaseName + ".ph.drho"
+    pIn.fildvscf = stCaseName + ".ph.dvscf"
+
+    bAddMass = False
+    for aAtom in qIn.listAtomSpecies:
+        if ( aAtom.stName != "H" and aAtom.dWeight < 1.01):
+            bAddMass = True
+            break
+
+    if ( bAddMass ):
+        print("\33[36mWarning: It seems that atom mass is not set to correct value in scf, newer mass will be used in phonon calculation.\33[m")
+        pIn.AddValue("inputph","amass",[0.0])
+        for i,aAtom in enumerate(qIn.listAtomSpecies):
+            pIn.amass.append(f_Element_Symbol_to_Mass(aAtom.stName))
+
+    return pIn
+
+def QESP_CalcualtePhonon(stFileName,stMode="gamma",listKPt=None,nProcess=-1):
+    '''
+    Do a series of calculation to get the specific property
+    :param stMode: the property should be calculated. Possible options: disp / dispersion ( Phonon dispersion), raman ( Raman Spectrum at gamma points ), elph / couplin ( Electron-Phonon coupling dispersion ), charge / effectivecharge ( Bohn Effective Charge )
+    '''
+    stCaseName = os.path.splitext(os.path.split(stFileName)[1])[0]
+    qIn = QESP_PW_input(stFileName)
+    pIn = f_QE_CreatePhononInputFromSCF(stFileName)
+    if ( stMode == "dispersion" or stMode =="disp" ):
+        pIn.stTitle = "Phonon dispersion of " + stCaseName
+        pIn.ldisp = True
+        if ( listKPt == None):
+            print("In dispersion calculation, k-points grid must be specified. [2,2,2] will be used in later calculation")
+            listKPt = [2,2,2]
+        pIn.AddValue("inputph","nq1",listKPt[0])
+        pIn.AddValue("inputph","nq2",listKPt[1])
+        pIn.AddValue("inputph","nq3",listKPt[2])
+        pIn.WriteToFile(stCaseName+"_disp_ph.in")
+
+        q2rIn = QESP_IO()
+        q2rIn.AddValue("input","fildyn",pIn.fildyn)
+        q2rIn.AddValue("input","zasr","simple")
+        q2rIn.AddValue("input","flfrc",stCaseName+".ph.frc")
+        q2rIn.WriteToFile(stCaseName + "_q2r.in")
+
+        matIn = QESP_matdyn_input()
+        matIn.flfrc = q2rIn.flfrc
+        matIn.flfrq = stCaseName+".ph.freq"
+        matIn.flvec = stCaseName+".ph.modes"
+        matIn.AddValue("input","q_in_band_form",True)
+        listKPt = f_QE_DetectSpeicalKPt(qIn.ibrav)
+        matIn.listKPt = [ [x[1][0],x[1][1],x[1][2],x[2]] for x in listKPt]
+        matIn.WriteToFile(stCaseName+"_matdyn.in")
+
+        if ( nProcess != -1):
+            st = stCaseName+"_disp_ph"
+            f_env_RunMpirunCommand("ph.x < %s.in > %s.out 2> %s.err" % ( st,st,st),nProcess)
+            st = stCaseName + "_q2r"
+            f_env_RunMpirunCommand("q2r.x < %s.in > %s.out 2> %s.err" % ( st,st,st),1)
+            st = stCaseName + "_matdyn"
+            f_env_RunMpirunCommand("matdyn.x < %s.in > %s.out 2> %s.err" % ( st,st,st),1)
+
+
+        
+    elif ( stMode == "raman"):
+        pIn.stTitle = "Raman of " + stCaseName
+        pIn.lraman = True
+        pIn.WriteToFile(stCaseName+"_raman_ph.in")
+
+        dynIn = QESP_IO()
+        dynIn.AddValue("input","fildyn",pIn.fildyn)
+        dynIn.AddValue("input","asr","simple")
+        dynIn.AddValue("input","filout",stCaseName+".dynmat.out")
+        dynIn.AddValue("input","filxsf",stCaseName+".dynmat.axsf")
+        dynIn.WriteToFile(stCaseName+"_dynmat.in")
+
+        if ( nProcess != -1):
+            st = stCaseName+"_raman_ph"
+            f_env_RunMpirunCommand("ph.x < %s.in > %s.out 2> %s.err" % ( st,st,st),nProcess)
+            st = stCaseName + "_dynmat"
+            f_env_RunMpirunCommand("dynmat.x < %s.in > %s.out 2> %s.err" % ( st,st,st),1)
+
+def Main(ArgList):
+    description = '''Calculate a specific phonon related property. 
+    '''
+    usage="usage: pq_phonon -i PWinput -m disp/raman -p Process" 
+    parser = OptionParser(usage=usage,description=description)
+    #create part
+    parser.add_option("-i",dest="stFile",help="The name of scf input file")
+    parser.add_option("-m",dest="stMethod",help="The property will be calculated")
+    parser.add_option("-p",dest="stProcess",default="-1",help="Process Count; If set to 0, use hostfile; If set to -1, program will not run")
+    
+    (options,args) = parser.parse_args(ArgList)
+    
+    if ( len(args) != 1 ):
+        parser.error("incorrect number of arguments.")
+
+    if ( options.stFile == None or options.stMethod == None):
+        parser.error("file name and property must be specified in the command.")
+    QESP_CalcualtePhonon(options.stFile,options.stMethod,nProcess = int(options.stProcess))
+
+if __name__ == "__main__":
+    Main(sys.argv)    
+

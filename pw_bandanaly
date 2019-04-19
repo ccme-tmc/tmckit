@@ -1,0 +1,111 @@
+#!/usr/bin/env python
+
+import sys,os,shutil
+from w2k_utils import *
+from struct_utils import *
+from io_utils import *
+
+myname_full = sys.argv[0]
+myname = os.path.basename(myname_full)
+
+def f_Help_Info():
+  print "\n  "+myname_full + ": a Python script to analyze band energes in the wien2k format \n"
+  print "  Usage: " + myname + " [options]"\
+  + """
+  Options:
+    -f <case_name>   # case name
+    -fn <full_name>  # full name for the energy file
+    -d               # set the debug mode
+    -h               # print out this information
+    -efer <efer>     # Fermi energy used to set as zero, in units of Ry 
+    -emax <emax>     # maximum energy in units of Ry with respect to Fermi energy
+    -emin <emin>     # minimum energy in units of Ry with respect to Fermi energy
+    -fer <fermi>   # option to choose where to read Fermi energy (use efer if this option is abscent )  
+                     #  0  -- from case.scf(default) 
+                     #  1  -- from *.scf2 
+                     #  2  -- from *.qtl
+    -p               # analyze band energies after a k-point parallel calculation 
+    -s <sp>        # sp= 0 for run_lapw, 
+                     #        1 for runsp_c_lapw or runafm_lapw 
+                     #        2 for runsp_lapw 
+    -so            # consider spin-orbit coupling 
+
+    -t <tag>         # the tag for the energy file 
+  """
+  sys.exit(0)
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+debug     = f_Getopt('-d'     , 0,  True  )
+case_name = f_Getopt('-f'     , 1,     '' )
+full_name = f_Getopt('-fn'    , 1,     '' )
+efer      = f_Getopt('-efer'  , 1,  100.0 )
+emax      = f_Getopt('-emax'  , 1,   1.0  )
+emin      = f_Getopt('-emin'  , 1,  -1.0  )
+fermi     = f_Getopt('-fer'   , 1,  -1    ) 
+para      = f_Getopt('-p'     , 0, False  )
+tag       = f_Getopt('-t'     , 1,     '' )
+sp        = f_Getopt('-s'     , 1,     0  ) 
+
+so        = f_Getopt('-so'    , 0, False  ) 
+
+case_name = f_Check_Name(case_name)
+nat = w2k_get(case_name,"nat")
+
+if so: so_tag = 'so'
+else:  so_tag = ''
+
+# get the Fermi energy 
+if efer > 10.0 and fermi < 0 : fermi = 0 
+if fermi >= 0: 
+  efer = f_Read_Efer(case_name,fermi,sp,tag) 
+
+print "Efermi=",efer 
+
+if para:
+  cmplx=f_Check_Complex(case_name) 
+  cmplxflag = ' '
+  if cmplx == 'c': cmplxflag = ' -c '
+    
+
+  nproc = w2k_get_nproc(case_name,sp) 
+  if nproc > 0: 
+    if sp == 0:
+      w2k_cmd = "join_vectorfiles "+ cmplxflag + case_name + " %d "%(nproc)
+    elif sp == 1: 
+      w2k_cmd = "join_vectorfiles -up "+ cmplxflag + case_name + " %d "%(nproc)
+    elif sp == 2:
+      w2k_cmd = "join_vectorfiles -up "+ cmplxflag + case_name + " %d ; "%(nproc) + "join_vectorfiles -dn "+ cmplxflag + case_name + " %d"%(nproc)
+    
+    W2k_run(w2k_cmd) 
+
+enk_all = []
+
+if full_name != '' :
+  enk_file = full_name 
+  (enk,kwt,kvec) = f_Read_Energy(enk_file,nat,debug=False)
+  enk_all.append(enk) 
+
+elif sp == 0 : 
+  enk_file = case_name+".energy"+so_tag+tag
+  (enk,kwt,kvec) = f_Read_Energy(enk_file,nat,debug=False)
+  enk_all.append(enk)
+
+elif sp == 1:
+  enk_file = case_name+".energy"+so_tag+'up'+tag
+  (enk,kwt,kvec) = f_Read_Energy(enk_file,nat,debug=False)
+  enk_all.append(enk)
+
+elif sp == 2: 
+  enk_file = case_name+".energy"+so_tag+'up'+tag
+  (enk,kwt,kvec) = f_Read_Energy(enk_file,nat,debug=False)
+  enk_all.append(enk)
+
+  if not so: 
+    enk_file = case_name+".energydn"+tag
+    (enk,kwt,kvec) = f_Read_Energy(enk_file,nat,debug=False)
+    enk_all.append(enk)
+
+print "Number of k-vectors=",len(kvec)
+
+w2k_band_analysis(enk_all,efer,kvec,emin,emax)

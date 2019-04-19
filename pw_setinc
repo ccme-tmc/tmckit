@@ -1,0 +1,62 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from w2k_utils import *
+from struct_utils import *
+from io_utils import *
+
+myname_full = sys.argv[0]
+myname = os.path.basename(myname_full)
+
+def f_Help_Info():
+  print "\n  "+myname_full + ": a Python script to set a inc file\n"
+  print '''Info: this is used to perform open core calculatios
+  and contrained DFT calculations. Information used to set up inc is read from 
+  <inp_oc>, which contrains following information 
+    line 1: 
+      nsp   natoc  !
+    line 2 - natoc+1: 
+      noc(i) loc(i) nel(i) conf(i) sh_inc(i) sh_in1(i) 
+    for i=1.. natoc
+
+    noc  (1..natoc) -- principle quantum number of the oc state on each atom
+    loc  (1..natoc) -- angular quantum number of oc state
+    nel  (1..natoc) -- the number of electrons frozen in the oc state
+    conf (1..natoc) -- spin configuration concerning *.inc for each oc state
+                      0 : paramagnetic
+                      1 : spin up for majority configuration
+                     -1 : spin dn as majority
+    sh_inc(1..natoc) -- shift applied to inc file
+    sh_in1(1..natoc) -- shift applied to in1 file
+  '''
+  print "  Usage: " + myname + " [options]"\
+  + """
+  Options:  
+    -f <case_name>   # case name 
+    -d               # set the debug mode
+    -i <inp_oc>      # name of the input file (default, case.inoc) 
+  """
+  sys.exit(0)
+
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+debug     = f_Getopt('-d',   0, True  ) 
+case_name = f_Getopt('-f',   1, ''    )
+inp_oc    = f_Getopt('-i',   1, ''    )
+
+case_name = f_Check_Name(case_name    )
+if inp_oc == '': inp_oc = case_name+".inoc"
+
+cmplx     = f_Check_Complex(case_name )
+natom     = w2k_get(case_name,'nat' ) 
+
+in1     = case_name.strip()+'.in1'+cmplx 
+in1_new = in1.strip()+"_new"
+
+if debug:
+  print "natom =       ", natom
+
+# read input file 
+ifile = open( inp_oc,'r') 
+ 
+

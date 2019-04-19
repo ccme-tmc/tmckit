@@ -1,0 +1,343 @@
+#!/bin/tcsh -f
+# This shell script is used to perform a hybrid calcultion using WIEN2k-v12 
+#
+ 
+# set the PATH to wien2k v12
+  setenv PATH $WIENDIR/v13:$PATH
+  echo "Check WIEN2k version:"
+  which x_lapw
+  setenv SCRATCH ./
+ 
+  set fullname=$0
+  set bindir=$fullname:h
+  set name=$fullname:t
+  set logfile=:log
+
+  alias AWK gawk 
+  alias exec   '(x_lapw  -f $file \!:*) ; (if ($status) goto error); (echo " running " \!:*) >>$logfile;'
+  alias print 'echo  \!:* | tee -a $outfile '
+
+  set full_command="$name $*" 
+  unset file  
+  set scf_opt='-ec 0.00001'
+  set mode=0 
+  set sp=0
+  set para
+  set nproc=-1
+  
+  set stop="run"
+
+  unset psl 
+  unset emax 
+  unset start 
+  unset screening
+  unset new_inhf 
+  unset nkp
+  
+  set xc_hyb='hse'
+  set sptag
+  set nband_extra=10
+  set alpha_x=0.25
+  set gmax=6 
+  set emax=5.0 
+  set lmax=2
+  set tolu=0.001
+ 
+  alias sb 'shift; breaksw'       #definition used in switch
+  while ($#argv)
+    switch ($1)
+    case -h:
+      goto help  
+    case -m:
+      shift; set mode=$1; sb 
+    case -xc:
+      shift; set xc_hyb=$1; sb 
+    case -nkp:
+      shift; set nkp=$1; sb
+    case -psl:
+      set psl; sb 
+    case -i:
+      set new_inhf; sb 
+    case -ex:
+      shift; set stop=$1; sb 
+    case -st:
+      shift; set start=$1; sb 
+    
+    # Options related to the hybrid functional, only needed for fine tuning the default parameters 
+    case -ax: 
+      shift; set alpha_x=$1; sb 
+    case -emax:
+      shift; set emax=$1; sb 
+    case -gm:
+      shift; set gmax=$1; sb 
+    case -lm:
+      shift; set lmax=$1; sb 
+    case -nb:
+      shift; set nband=$1; sb 
+    case -scr:
+      shift; set scr_lamda=$1; sb 
+    case -tu:
+      shift; set tolu=$1; sb 
+
+    # Options for SCF
+    case -sp:
+      shift; set sp=$1; sb 
+    case -p:
+      shift; set nproc=$1; sb
+    case -o:
+      shift; set scf_opt="$scf_opt $1";sb 
+    default:
+      echo "Undefined option $1 !" 
+      goto help ; sb
+    endsw
+  end
+  
+  # if $file not set, set default vaule of the filename to the name of the working directory
+  # make some simple tests to be sure $file is correct 
+  #
+
+  set wdir=`pwd`
+  echo "Current directory:" $wdir 
+  if !($?file) then
+    set file=$wdir:t
+  endif
+
+  if !(-e $file.struct ) then 
+    echo " ERROR: Current directory does not have $file.struct!" 
+    goto error 
+  endif
+  echo "Case Name:" $file 
+
+  switch($sp)
+  case 0: 
+    set scf_cmd="run_lapw"; breaksw
+  case 1:
+    set scf_cmd="runsp_c_lapw"; set sptag='up'; breaksw 
+  case 2:
+    set scf_cmd="runsp_lapw";   set sptag='up'; breaksw
+  case 3:
+    set scf_cmd="runafm_lapw";  set sptag='up'; breaksw 
+  default:
+    echo "unsupported option for sp:$sp"
+    goto help; breaksw
+  endsw 
+  echo "set scf_cmd=" $scf_cmd
+
+# chech whether it is a complex calculation
+  w2k_chkcmplx -f $file 
+  if ($status) then 
+    set cmplxflag='-c'
+    set cmplx='c'
+  else
+    set cmplx
+    set cmplxflag
+  endif 
+
+start:
+
+  if ( $?start ) then 
+    echo "Start from " $start
+    goto $start
+  endif 
+
+
+#
+# Prepare the input files
+#
+inp:
+
+  echo "xc_hyb:" $xc_hyb
+  switch ($xc_hyb)
+  case hf:
+    set ixc=6;  set ixc_grr=51; set alpha_x=1.0; breaksw
+  case pbe0:
+    set ixc=13; set ixc_grr=52; set alpha_x=0.25; breaksw
+  case hse:
+    set ixc=13; set ixc_grr=52; set alpha_x=0.25; set scr_lambda=0.165; breaksw
+  case b3pw91:
+    set ixc=18; set ixc_grr=51; set alpha_x=0.20; breaksw
+  case b3lyp:
+    set ixc=47; set ixc_grr=51; set alpha_x=0.20; breaksw
+  case lda:
+    set ixc=5;  set ixc_grr=51; breaksw 
+  case pbe:
+    set ixc=13; set ixc_grr=52; breaksw
+  case wc:
+    set ixc=11; set ixc_grr=53; breaksw
+  case pbesol:
+    set ixc=19; set ixc_grr=54; breaksw
+  case bpw91:
+    set ixc=17; set ixc_grr=55; breaksw
+  case blyp:
+    set ixc=24; set ixc_grr=55; breaksw
+  default:
+    echo "ERROR: unsupported ixc!"; goto error
+  endsw    
+
+  # change case.in0
+  echo "change $file.in0"
+  mv -f $file.in0 $file.in0_old
+  AWK -v xc=$ixc '{if(NR==1) {$2 = xc ;print $0 } else{print $0 }}' $file.in0_old >>& $file.in0
+  # create case.in0_grr
+  echo "Create $file.in0_grr"
+  AWK -v xc=$ixc_grr '{ if(NR==1) { $1 = "KXC"; $2 = xc ;print $0 } else if (NR==2) { $1 = "R2V"; print $0} else { print $0 } }' $file.in0_old > $file.in0_grr
+
+  # change emax 
+  if ($?emax) then
+    echo "Change emax in $file.in1$cmplx"
+    echo "emax=" $emax 
+    mv -f $file.in1$cmplx $file.in1.tmp
+    AWK -v em=$emax '{if(index($0,"K-VECTOR")){$5 = em;printf "%21s%10.1f%10.1f%19s\n", $1 FS $2 FS $3,$4,$5,$6  FS $7}else{print $0}}' $file.in1.tmp  >&  $file.in1$cmplx
+    $scf_cmd $scf_opt -s lapw1 -e lapw1   
+  endif 
+
+  # set lmaxe and lmaxv 
+  if !($?lmax) then 
+    set lmax=`AWK 'BEGIN{lm=0}; {if( NF==5) {; if ($1>lm){lm=$1} }}; END{print lm}' $file.in1$cmplx`
+  endif 
+
+  set lmaxv=$lmax
+  set lmaxe=`AWK -v l=$lmax 'BEGIN{ print l*2 }'`
+  echo "lmax,lmaxe,lmaxv=" $lmax $lmaxv $lmaxe
+  # create case.inhf
+
+  echo "===> Prepare $file.inhf" 
+  if ( ($?new_inhf) || !(-e $file.inhf) ) then 
+
+    # obtain the index of the lowest fully unoccupied band
+    grep ':BAN' $file.scf2 > band.tmp
+    set ncb=`AWK '{if($5==0.0) {print $2; exit } }' band.tmp`
+    echo "The index for the lowest conduction band:",$ncb 
+    if !($?nband) then
+      set nband=`AWK 'BEGIN{nb=5000}; {if( NF==7) {; if ($6<nb){nb=$6} }}; END{print nb-5}' $file.energy$sptag`
+      if( $nband < $ncb ) then
+        print "ERROR: not enough bands available!"
+        goto error
+      endif
+    endif
+    echo "nband=" $nband
+
+    if (-e $file.inhf ) then 
+      echo "here"
+      echo "WARNING: $file.inhf exists! renamed to case.inhf_old as a copy"
+      mv -f $file.inhf $file.inhf_old
+    endif 
+
+    echo "$alpha_x      alpha" > $file.inhf
+    if($?scr_lambda) then 
+      echo "T     screened (T) or unscreened (F)"
+      if ($scr_lambda == 0 ) then 
+        echo "0.165        lambda" >> $file.inhf
+      else
+        echo "$scr_lambda  lambda" >> $file.inhf
+      endif 
+    else
+      echo "F     screened (T) or unscreened (F)">>$file.inhf
+    endif 
+    echo "$nband       nband" >> $file.inhf 
+    echo "$gmax        gmax"  >> $file.inhf
+    echo "$lmaxe       lmaxe" >> $file.inhf
+    echo "$lmaxv       lmaxv" >> $file.inhf
+    echo "$tolu        tolu"  >> $file.inhf 
+  endif 
+  cat $file.inhf
+  echo 
+  if("$stop" == "inp") goto done 
+
+kgen:
+  if ($?nkp) then 
+    # generate k-list necessary for the hybrid calculationa
+    run_kgenhf_lapw 
+    if("$stop" == "kgen") goto done 
+  endif 
+
+run:
+  set para
+  if ($nproc >= 0 ) then
+    set para="-p"
+  endif
+  if( $nproc > 0 ) then
+     if ( -e .machines ) then
+      mv -f .machines .machines.old
+    endif
+
+    echo "create .machines file"
+    echo '# .machines for crpa_init' > .machines
+
+    setenv USE_REMOTE 0
+    set host=`hostname `
+    #example for k-point and mpi parallel lapw1/2
+    set i=1
+    while ($i <= $nproc )
+      echo -n '1:' >> .machines
+      @ i1 = $i + 1
+      @ i2 = $i1 - 1
+      echo "$host " >> .machines
+      set i=$i1
+    end
+    echo '' >> .machines
+    echo 'granularity:1' >>.machines
+    echo 'extrafine:1' >>.machines
+  endif
+
+  switch($mode)
+  case 0:
+    $scf_cmd $scf_opt $para -diaghf; breaksw 
+  case 1:
+    $scf_cmd $scf_opt -hf $para; breaksw 
+  case 2:
+    $scf_cmd $scf_opt -hf -redklist $para; breaksw
+  case 3:
+    $scf_cmd $scf_opt $para -nonscf; breaksw 
+  default:
+    echo "unsupported option for mode:$mode"
+    goto help; breaksw
+  endsw
+  
+done:
+  echo "STOP at" $stop
+  exit 0
+
+help:
+  cat <<EOF 
+  Usage: `basename $0` [options]
+  Options:
+    -f <file>         # filename 
+
+    -h                # write help and exit 
+    -i                # create the case.inhf file from the scratch 
+                        otherwise, the existing case.inhf is used if possible 
+    -m <mode>         #  0 - use "-diaghf" (default)  
+                      #  1 - self-consistent 
+                      #  2 - self-consistent with reduced k-mesh "-redklist"
+                      #  3 - non-selfconsistent but calculating total energy with "-nonscf"
+    -st <inp/kgen/run>   # start from inp/kgen/run 
+    -ex <inp/kgen/run>   # exit after inp/kgen/run
+
+  Options for hybrid functionals 
+    -ax <alpha_x>     # the fraction of the HF exchange
+    -emax <emax>      # emax reset in case.in1 
+    -gm  <gmax>       # gmax reset in case.in2
+    -lm  <lmax>       # lmaxe = lmax*2, lmaxv=> lmax
+    -nb  <nband>      # number of bands used in case.inhf
+    -scr <scr_lambda> # screening parameter(if set 0.0, then set to the default value of 0.165)
+    -tu  <tolu>       # tolu in case.inhf 
+    -xc <xc>          # which hybrid functional (hse/pbe0/b3lyp/b3pw91/pbe/lda/...
+
+  options for SCF 
+    -p  <nproc>       # run lapw1/lapw2/hf in parallel mode 
+                      # if nproc=0, using the existing .machines file
+                      # other wise, create .machines using the local host 
+    -sp  < 0/1/2/3>   # option for spin polarized cases
+                      #  0 -- run_lapw 
+                      #  1 -- runsp_c_lapw  
+                      #  2 -- runsp_lapw  
+                      #  3 -- runafm_lapw  
+    -o <'other_options'>  # other options for SCF 
+EOF
+
+  exit 0
+
+error:
+  echo "ERROR when running $0"
+  exit 1 

@@ -1,0 +1,10 @@
+
+# objects
+*.pyc
+*.o
+
+# mod files
+*__genmod.f90
+*.mod
+
+.svn

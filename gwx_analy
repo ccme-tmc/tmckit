@@ -1,0 +1,260 @@
+#!/bin/tcsh -f
+
+#  ------------------------------------------------------------------------------------!
+#                               gwx_analy                                              !
+#--------------------------------------------------------------------------------------! 
+# This script use the output of GW calculation to calculate the density of states (DOS) 
+#
+ 
+  set fullname=$0
+  set bindir=$fullname:h
+  set name=$fullname:t
+  set logfile=:log
+
+  alias cp "cp -f"
+  alias mv "mv -f"
+  alias rm "rm -f"
+  alias KGEN    $bindir/w2k_kgen
+  alias GETGAP  $bindir/pw_getgap
+  setenv SCRATCH .
+
+  alias sb 'shift; breaksw'       #definition used in switch
+
+  alias exec   '(x_lapw  -f $file \!:*) ; (if ($status) goto error); (echo " running " \!:*) >>$logfile;'
+  alias print 'echo  \!:* | tee -a $outfile '
+
+  set restart=init
+  set sp=0
+  set gwtag='qsgw'
+  set cmplxflag
+
+  unset error
+  unset nkp
+  unset cmplx
+  unset file
+  unset gwdir
+  unset help
+  while ($#argv)
+    switch ($1)
+    case -c:
+      set cmplxflag='-c'; sb 
+
+    case -f:
+      shift; set file=$1;  sb
+
+    case -gwdir:
+      shift; set gwdir=$1; sb 
+
+    case -gwtag:
+      shift; set gwtag=$1; sb 
+
+    case -nkp: 
+      shift; set nkp=$1; sb          # get number of k-points for DOSa
+
+    case -r:
+      shift; set restart=$1; sb 
+
+    case -s:
+      shift; set sp=$1; sb  
+
+    case -h:
+      goto help  
+
+    default:
+      echo "ERROR in $name - Undefined options " $1 
+      goto help ; sb
+    endsw
+  end
+
+#-----------------------------------------------------------------------#
+#                  Initilization                                        #
+#-----------------------------------------------------------------------#
+  
+  # if $file not set, set default vaule of the filename to the name of the working directory
+  # make some simple tests to be sure $file is correct 
+  set wdir=`pwd`
+  if !($?file) then
+    set file=$wdir:t
+  endif
+
+  if !(-e $file.struct ) then 
+    echo " ERROR: Current directory does not have $file.struct!" 
+    goto error 
+  endif
+
+  set outfile=$file.outanaly
+  if ( ($restart == 0 ) && ( -e $outfile ) ) rm -f $outfile 
+  echo "run_dos on " `date` >> $outfile 
+
+  print " gwtag=" $gwtag
+  print " gwdir=" $gwdir
+
+  # check complex
+  # If *.in1 does not exist, indicating complex calculations
+  print " - check complex"
+  w2k_chkcmplx $cmplxflag -f $file
+  if( $status == 1 ) then
+    set cmplx='-c'
+  else if( $status == 0 ) then
+    set cmplx=''
+  else
+    print  "  ERROR found when chkcmplx"
+    goto error
+  endif
+
+  print ' - set spin flag '
+  switch( $sp )
+  case 0:
+    set spflag=''; breaksw
+  case 1:
+    set spflag='up'; breaksw
+  case 2:
+    set spflag='{up,dn}'; breaksw
+  endsw
+  print '  spflag = ' $spflag
+#
+# To avoid possible confusions, the following files are backuped and recoved 
+# after this shell script is done 
+#
+
+bakup:
+  set bakuplist = ( klist kgen energy$spflag dos1ev$spflag qtl$spflag ) 
+  print ' - backup original files belonging to the SCF calculation '
+  foreach ext ( $bakuplist )
+    if( (-e $file.$ext) && !( -e $file.${ext}_scf )) cp $file.$ext $file.${ext}_scf
+  end 
+
+#
+# Prepare *.int file 
+#
+# copy the template *.int file if not existing in the current directory
+  if !(-e $file.int) then 
+    cp -f $WIENROOT/SRC_templates/case.int $file.int
+  endif
+
+  print ' - choose starting point:' 
+  goto $restart 
+
+init:
+
+gwvector:
+  # prepare GW vector and energy files 
+  print 
+  print "  --- copy GW vector and energy files ---"
+  print 
+
+  switch($sp) 
+  case 0: 
+    cp $gwdir/$file.energy_$gwtag $file.energy
+    cp $gwdir/$file.vector_$gwtag $file.vector
+    breaksw
+  case 1:
+    cp $gwdir/$file.energy_$gwtag $file.energyup
+    cp $gwdir/$file.vector_$gwtag $file.vectorup
+    breaksw
+  case 2:
+    cp $gwdir/$file.energyup_$gwtag $file.energyup
+    cp $gwdir/$file.energydn_$gwtag $file.energydn
+    cp $gwdir/$file.vectorup_$gwtag $file.vectorup
+    cp $gwdir/$file.vectordn_$gwtag $file.vectordn
+    breaksw
+  endsw
+
+kgen:
+  print 
+  print "  --- generate k-mesh consistent with GW QP vectors"
+  print 
+  w2k_kgen -f $file -s -nkp $nkp
+
+lapw2:
+#
+# Calculate partial charges by x lapw2
+#
+  print 
+  print '--- lapw2 for qtl ---'
+  print 
+
+  switch($sp)
+  case 0:
+    exec  $cmplx -qtl lapw2   
+    breaksw
+  case 1:
+    cp -f $file.energyup $file.energydn
+    exec $cmplx -up -qtl lapw2 
+    breaksw
+  case 2:
+    exec $cmplx -up -qtl  lapw2  
+    exec $cmplx -dn -qtl  lapw2  
+    breaksw
+  endsw
+
+tetra:
+  print 
+  print ' --- tetra ---'
+  print 
+
+  switch($sp)
+  case 0:
+    exec tetra
+    breaksw
+  case 1:
+    exec -up tetra 
+    breaksw
+  case 2:
+    exec -up tetra 
+    exec -dn tetra 
+    breaksw
+  endsw
+
+save:
+  switch($sp)
+  case 0:
+    mv $file.dos1ev $file.dos1ev_$gwtag
+    mv $file.qtl    $file.qtl_$gwtag 
+    breaksw
+  case 1:
+    mv $file.qtlup    $file.qtlup_$gwtag 
+    mv $file.dos1evup $file.dos1evup_$gwtag
+    breaksw
+  case 2:
+    mv $file.qtlup    $file.qtlup_$gwtag 
+    mv $file.qtldn    $file.qtldn_$gwtag 
+    mv $file.dos1evup $file.dos1evup_$gwtag
+    mv $file.dos1evdn $file.dos1evdn_$gwtag
+    breaksw
+  endsw
+
+  exit 0 
+
+# recover backuped files 
+recover:
+  print 
+  print '--- recover backuped SCF files ---'
+  print 
+  foreach ext  ( $bakuplist )
+    if ( -e $file.${ext}_scf ) mv -f $file.${ext}_scf  $file.${ext}
+  end
+  exit 0
+
+error:
+  print " ERROR in run_dos"
+  exit 1
+
+help:
+  cat <<EOF 
+  Usage: `basename $0` [options]
+  Options:
+    -c,  --complex              # complex calculation
+    -f <file>                   # filename 
+    -gwdir <gwdir>              # directory that store the gw output 
+    -gwtag <gwtag>              # tag for GW eqpH file (default "qsgw") 
+    -h                          # write help and exit 
+    -nkp <number of kpoints>    # Number of kpoints needed for DOS calculations 
+    -r <restart >               # start from beginning/gwvector/kgen/lapw2/tetra/recover 
+    -s <0/1/2>                  # option for spin polarized cases
+                                #  0 -- spin unpolarized 
+                                #  1 -- spin polarized but only spin up is calculated (for sp_c_lapw or afm_lapw) 
+                                #  2 -- spin polarized 
+EOF
+
+

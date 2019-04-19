@@ -1,0 +1,131 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from struct_utils  import *
+from constants     import *
+from vasp_utils_jh import * 
+from io_utils      import *
+from data_utils    import * 
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to set the geometry constraint for POSCAR \n"
+  print "  Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -D                    # set the debug mode 
+    -h                    # display this help information
+    -c <constr_info>      #  mode = 1-4 --> constr_r0
+                             mode=0     --> a string like atom:ia0:ia1;atom2:ia0:ia1
+    -f <fl_poscar=POSCAR> # give the name of the vasp structure file 
+    -m <mode=0>           # set the mode on how to represent the constraintfix the position for atom from ia0 to ia1 
+                  #  0 - set the constraints in terms of atom indices 
+                  #  1 - fix the positions for     z < constr_r0 
+                  #  2 - fix atomic positions for  z > constr_r0 
+                  #  3 - fix atomic positions for  |z-0.5| < constr_r0 
+                  #  4 - fix atomic positions for  min(z,1.0-z) < constr_r0 
+    -z <z_axis=3> # indicate which direction is regarded as z axis  
+    -c <a1:ia1_1:ia1_2;a2:ia2_1:ia2_2...> # which atom
+ 
+  """
+  sys.exit(0)
+
+# default input and output format 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+debug = f_Getopt('-D', 0, True) 
+
+mode = f_Getopt('-m', 1, 0)
+
+fl_poscar = f_Getopt('-f',1,'POSCAR') 
+constr_info = f_Getopt('-c', 1, '')
+
+ifile = open(fl_poscar,'r') 
+ofile = open(fl_poscar+"_new",'w') 
+
+# extract the information on constraints
+constr = [] 
+if mode == 0: 
+  tmp1 = constr_info.split(';') 
+  nat_c = len(tmp1) 
+  for ia in range(nat_c):
+    tmp2 = tmp1[ia].split(':')
+    atom = tmp2[0]
+    ia0 = int(tmp2[1])
+    ia1 = int(tmp2[2]) 
+    constr.append([atom,ia0,ia1]) 
+else:
+  constr_r0 = float(constr_info) 
+
+# copy the first 4 lines
+for i in range(5): 
+  line = ifile.readline() 
+  ofile.write(line) 
+
+# get the information of component atoms 
+line = ifile.readline() 
+ofile.write(line) 
+
+atoms = line.split() 
+ntyp = len(atoms) 
+
+line = ifile.readline() 
+ofile.write(line) 
+
+tmp = line.split()
+
+nats = []
+for i in range(ntyp):
+  nats.append(int(tmp[i]))
+
+if debug:
+  print atoms
+  print nats 
+
+# add the line "Selective dynamics" if not present yet 
+line = ifile.readline() 
+if line[0]== 's' or line[0]== 'S':
+  ofile.write(line) 
+  line = ifile.readline()
+else:
+  ofile.write("Selective dynamics\n") 
+
+ofile.write(line)
+
+for ityp in range(ntyp): 
+  for ia in range(nats[ityp]): 
+    line = ifile.readline()
+    tmp  = line.split('#') 
+    tmp1 = tmp[0].split() 
+    x = float(tmp1[0])
+    y = float(tmp1[1])
+    z = float(tmp1[2])
+
+    if len(tmp) > 1: 
+      info = " # " + tmp[1] 
+    else: 
+      info = " # "  + atoms[ityp] + " " + str(ia) + "\n"
+
+    if mode == 1: 
+      if z < constr_r0: 
+        ofile.write("%f %f %f F F F %s"%(x,y,z,info)) 
+      else:
+        ofile.write("%f %f %f T T T %s"%(x,y,z,info))
+    elif mode == 2: 
+      if z > constr_r0:
+        ofile.write("%f %f %f F F F %s"%(x,y,z,info))
+      else:
+        ofile.write("%f %f %f T T T %s"%(x,y,z,info))
+    elif mode == 3: 
+      if abs(z-0.5) <  constr_r0:
+        ofile.write("%f %f %f F F F %s"%(x,y,z,info))
+      else: 
+        ofile.write("%f %f %f T T T %s"%(x,y,z,info))
+    elif mode == 4: 
+      if min(z,1.0-z) < constr_r0:
+        ofile.write("%f %f %f F F F %s"%(x,y,z,info))
+      else: 
+        ofile.write("%f %f %f T T T %s"%(x,y,z,info))
+ 
+   
+ifile.close()
+ofile.close() 

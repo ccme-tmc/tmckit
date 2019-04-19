@@ -1,0 +1,112 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from struct_utils import *
+from constants    import *
+from vasp_utils_jh     import * 
+from io_utils     import *
+from data_utils   import * 
+from band_utils   import f_Band_GetGap
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to perform self-adapted hybrid (SAH) calculation\n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -D                # set the debug mode
+    -h                # display this help information
+    -f   <fn>         # the prefix for various output files 
+    -nb  <nb=40>      # the number of bands  
+    -im  <imax=5>     # the maximal number of iterations for hybrid + optic calculations 
+    -ec  <ecut=0.0>   # ecut  0.0/-1.0 -> PREC = Normal/Accurate
+    -t   <tol=0.01>   # tolerance for running the further calculation 
+    -r                # set restart 
+    -prec <prec_hf>   # set HFPREC=fast/normal/accurate
+    -sc <scr>         # use the screened hybrid 
+                        scr > 0.0 => HSE, 
+                        scr < 0.0 => Thomas-Fermi screening
+    -p   <np>         # parallel running
+  Examples:
+  """
+  sys.exit(0)
+
+#--------------------------------------------------------------------#
+#                         main body of the script                    #
+#--------------------------------------------------------------------# 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+debug   = f_Getopt('-D',0,False)
+nb      = f_Getopt('-nb',1,40 )
+ecut    = f_Getopt('-ec',1,0.0 ) 
+np      = f_Getopt('-p', 1, 1    ) 
+tol     = f_Getopt('-t', 1, 0.01 ) 
+imax    = f_Getopt('-im',1, 6    )
+fn      = f_Getopt('-f', 1, 'sah') 
+prec_hf = f_Getopt('-prec', 1, 'fast')
+scr     = f_Getopt('-sc',1,0.0   ) 
+restart = f_Getopt('-r',0,False) 
+
+  
+outfile = "OUTCAR"
+
+sah_out = fn+"-summary.dat"
+
+ax_all = []
+emi_all = []
+i0 = 0 
+if restart:
+  data = f_Read_Data(sah_out)
+  for i in range(len(data)):
+    i0 += 1
+    ax_all.append(data[i][1])
+    emi_all.append(data[i][3])
+
+  of_sah = open(sah_out,'a') 
+
+  if debug: 
+    print "Restart from i=%d"%(i0)
+    print "Preceding results:"
+    print "  ax     =", ax_all
+    print "  1/epsm =",emi_all
+
+else:
+  of_sah = open(sah_out,'w') 
+  of_sah.write("#%4s%8s%8s%8s%8s\n"%("i","ax","epsm","1/epsm","Egap"))
+
+l_drop_x0 = False # indicate whether x=0.0 is dropped from fitting 
+for i in range(i0,imax):
+  if i==0:
+    ax = 0.0
+  elif i==1 :
+    ax = 0.25 
+  else:
+    ax = vasp_sah_aexx(ax_all,emi_all) 
+
+  vasp_sah_incar(ecut,nb,ax,scr,hfprec=prec_hf)
+  ierr = vasp_run(np)
+  if ierr != 0:
+    print "ERROR in running vasp!"
+    sys.exit(1) 
+ 
+  em = max(vasp_getout("epsm",outfile,debug=debug)) 
+  egap = vasp_getout("gap",outfile,debug=debug) 
+  print ":SAH i, ax, em, 1/em, Egap= %5d%8.3f%8.3f%8.3f%8.3f"%(i, ax, em, 1/em, egap)
+  of_sah.write("%5d%8.3f%8.3f%8.3f%8.3f \n"%(i,ax,em,1.0/em,egap))
+
+  outfile_new = fn + "-%d"%(i)+'.'+outfile
+  shutil.copyfile(outfile,outfile_new)
+
+  if i==0 and egap < 0.1: 
+    l_drop_x0 = True
+    print "WARNING: ax=0.0 leads to (nearly) metallic state and therefore dropped from fitting"
+  else:   
+    ax_all.append(ax)
+    emi_all.append(1.0/em)
+
+  # check convergence, at least two hybrid calculations are performed  
+  if i >= 1 and abs(ax - 1.0/em) < tol: break 
+
+print "The SAH approach is successful within %d hybrid + optic calculations"%(i)
+of_sah.close()
+

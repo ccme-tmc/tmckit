@@ -1,0 +1,520 @@
+#!/usr/bin/env python
+#!Scan parameters in Espresso
+from argparse import ArgumentParser
+import re
+import time
+import shutil
+import commands,copy,os,sys
+
+from py_utils import EmptyFormatter
+from qesp_utils import QESP_ld1_input,QESP_PW_input,QESP_PW_output,f_QE_LoadOptimizedCell
+from common_caseutil import deprecated,f_GetCaseName,f_env_RunMpirunCommand,f_GetExecFullPath,f_Split_EnumerateRangeString
+import list_utils as lu
+
+@deprecated
+def QESP_ScanRead(stProperty="",stCaseName="",stFolder=""):
+    '''
+    Read all files in this folder
+    '''
+    Regex= re.compile(pattern=re.escape(stCaseName)+"(.*).out")
+    
+    if ( stCaseName ==""):
+        stCaseName = f_GetCaseName()
+    
+    if ( stProperty == ""):
+        print("No property to read! Exit Now...")
+        return
+    
+    
+    listProperty = stProperty.split(";")
+    dicResult = {}
+    
+    if ( stFolder == ""):
+        stFolder = os.getcwd()
+        
+    bFindFile = False
+    stHeadline = "Para" # Headline
+    stFormat = "%s" # Format Line
+    
+    #build string
+    if ( "energy" in listProperty ): # default : Total EnergystHeadline += "\n"
+        stHeadline += "\tEnergy"
+        stFormat += "\t%f"    
+    if ( "time" in listProperty):
+        stHeadline += "\tUsed Time"
+        stFormat += "\t%s"   
+    if ( "a" in listProperty):
+        stHeadline += "\tA axis"
+        stFormat += "\t%f"       
+    if ( "c" in listProperty):
+        stHeadline += "\tC axis"
+        stFormat += "\t%f"      
+    
+    re_time  = re.compile(".*PWSCF.*:(.*)CPU(.*)WALL(.*)")
+    
+
+    
+    for stFileName in os.listdir(stFolder):
+        #print ("Check file: %s" % stFileName)
+        aMatch = Regex.match(stFileName)
+        if ( aMatch != None):
+            bFindFile = True
+            stPara = aMatch.group(1)
+            #print("Find %s" % stPara)
+            
+            #detect parameter split ( like a-2+b-2 )
+            listPara = stPara.split("+")
+            # only available when all part has a "-"
+            bOK = True
+            for aPara in listPara:
+                if ( aPara.find("-") == -1):
+                    bOK = False
+                    break
+            if ( bOK ): # reconstruct the instruction string
+                stPara = stPara.replace("+","\t").replace("-","\t")
+            
+            fIn = open(os.path.join(stFolder,stFileName))
+            list_stLine = fIn.readlines()
+            if( not dicResult.has_key(stPara)):
+                dicResult[stPara] = []
+            if ( "energy" in listProperty ): # default : Total EnergystHeadline += "\n"
+                dicResult[stPara].append(-1)                
+                for stLine in list_stLine:
+                    if ( stLine.find("!    total energy") != -1):
+                        #dic_fEnergy[stPara] = float(stLine.split()[-2])
+                        dicResult[stPara][-1]= float(stLine.split()[-2])
+                        break
+            if ( "time" in listProperty):
+                dicResult[stPara].append(-1)
+                for i,stLine in enumerate(list_stLine):
+                    if ( stLine.find("     PWSCF") != -1):
+                        aMatch = re_time.match(stLine)
+                        dicResult[stPara][-1]= aMatch.group(2).strip()
+                        break                
+            if ( "a" in listProperty):
+                dicResult[stPara].append(-1)
+                for i,stLine in enumerate(list_stLine):
+                    if ( stLine.find("Begin final coordinates") != -1):
+                        dicResult[stPara][-1]= float(list_stLine[i+4].strip().split()[0])
+                        break
+            if ( "c" in listProperty):
+                dicResult[stPara].append(-1)
+                for i,stLine in enumerate(list_stLine):
+                    if ( stLine.find("Begin final coordinates") != -1):
+                        dicResult[stPara][-1]= float(list_stLine[i+6].strip().split()[2])
+                        break      
+     
+             
+    if( not bFindFile):
+        print("No file found by %s, are you use wrong parameter?" % os.path.join(stFolder,stCaseName))                
+                    
+    fOut = open("scan.out","w")
+    
+    #output result
+    print(stHeadline)
+    fOut.write(stHeadline+"\n")
+    for stKey,listValue in dicResult.iteritems():
+        print(stFormat % tuple([stKey] + listValue))
+        fOut.write((stFormat+"\n") % tuple([stKey] + listValue))    
+    fOut.close()
+
+def QESP_BatchRead(stProperty="",stCaseName="",stFolder=""):
+    '''
+    Read a series of output file in one folder, extract information needed.
+    QESP_pw_output is used here.
+    Keywork:
+    a/b/c : the lattice parameter of latest result
+    Energy: the energy of result ( the first scf in relax calculation )
+    time: the WALL time cost
+    '''
+    Regex= re.compile(pattern=re.escape(stCaseName)+"(.*).out")
+    
+    if ( stCaseName ==""):
+        stCaseName = f_GetCaseName()
+    
+    if ( stProperty == ""):
+        print("No property to read! Exit Now...")
+        return
+    
+    
+    listProperty = stProperty.split(";")
+
+    dicResult = {}
+    
+    if ( stFolder == ""):
+        stFolder = os.getcwd()
+        
+    bFindFile = False
+    stHeadline = "Para" # Headline
+    stFormat = "%s" # Format Line
+    
+    #build string
+    if ( "energy_last" in listProperty ): # default : Total EnergystHeadline += "\n"
+        stHeadline += "\tLast Energy"
+        stFormat += "\t%f"
+    if ( "energy_first" in listProperty ): # default : Total EnergystHeadline += "\n"
+        stHeadline += "\tFirst Energy"
+        stFormat += "\t%f"            
+    if ( "time" in listProperty):
+        stHeadline += "\tUsed Time"
+        stFormat += "\t%s"   
+    if ( "a" in listProperty):
+        stHeadline += "\tA axis"
+        stFormat += "\t%f"       
+    if ( "c" in listProperty):
+        stHeadline += "\tC axis"
+        stFormat += "\t%f"
+
+    for stProp in listProperty:
+        if ( "dist:" in stProp):
+            stHeadline += "\tDistance "+stProp[5:]
+            stFormat += "\t%f"
+    
+    re_time  = re.compile(".*PWSCF.*:(.*)CPU(.*)WALL(.*)")
+    
+
+    
+    for stFileName in os.listdir(stFolder):
+        #print ("Check file: %s" % stFileName)
+        aMatch = Regex.match(stFileName)
+        if ( aMatch != None):
+            bFindFile = True
+            stPara = aMatch.group(1)
+            #print("Find %s" % stPara)
+            
+            #detect parameter split ( like a-2+b-2 )
+            #note: functional +d,+c6 and +vdw will be replaced by _d,_c6 and _vdw
+            stPara = stPara.replace("+c6","_c6").replace("+vdw","_vdw").replace("+d","_d").replace("+D","_D")
+            listPara = stPara.split("+")
+            # only available when all part has a "-"
+            bOK = True
+            for aPara in listPara:
+                if ( aPara.find("-") == -1):
+                    bOK = False
+                    break
+            if ( bOK ): # reconstruct the instruction string
+                stPara = stPara.replace("+","\t").replace("-","\t")
+            
+            pwOut = QESP_PW_output(os.path.join(stFolder,stFileName))
+            #print(pwOut.bEnd,pwOut.bNotConverge,pwOut.bOK)
+            if ( not pwOut.bOK ):
+                if ( not pwOut.bFinalReached): # no result obtained, add -1 for all parameter, continue
+                    dicResult[stPara] = [-1 for x in listProperty]
+                    continue 
+            
+            if( not dicResult.has_key(stPara)):
+                dicResult[stPara] = []
+            if ( "energy_first" in listProperty ): 
+                dicResult[stPara].append(pwOut.FirstEnergy())
+            if ( "energy_last" in listProperty):# default : Total EnergystHeadline += "\n"
+                dicResult[stPara].append(pwOut.FinalEnergy())
+            if ( "time" in listProperty):
+                dicResult[stPara].append(pwOut.stWALLTime)
+            if ( "a" in listProperty):
+                dicResult[stPara].append(pwOut.FinalLattice().fLatticeLength[0])
+            if ( "b" in listProperty):
+                dicResult[stPara].append(pwOut.FinalLattice().fLatticeLength[1])                
+            if ( "c" in listProperty):      
+                dicResult[stPara].append(pwOut.FinalLattice().fLatticeLength[2])
+            listAtom = None
+            for stProp in listProperty: 
+                if ( "dist" in stProp):#Atom distance
+                    if ( listAtom == None):
+                        listAtom = [x[1:] for x in pwOut.FinalLattice().GetAtomList('ang','conv')]
+                    n1,n2 = [int(x) for x in stProp[5:].split(',')[:2]]
+                    dicResult[stPara].append( lu.f_List_norm(lu.f_List_Op_List(listAtom[n1],'-',listAtom[n2])))
+
+             
+    if( not bFindFile):
+        print("No file found by %s, are you use wrong parameter?" % os.path.join(stFolder,stCaseName))                
+                    
+    fOut = open("scan.out","w")
+    
+    #output result
+    print(stHeadline)
+    fOut.write(stHeadline+"\n")
+    for stKey,listValue in dicResult.iteritems():
+        print(stFormat % tuple([stKey] + listValue))
+        fOut.write((stFormat+"\n") % tuple([stKey] + listValue))    
+    fOut.close()    
+    pass
+        
+
+def QESP_Scan(dicPara="",stInput="",stOutputFolder="",nProcess=1,b_new_prefix=False):
+    '''
+    Scan structure with specified parameters.
+    Parameters to be scanned must be write explicit in input file, or it will be ignored. 
+    Relative parameter(B) put after absolute parameter(A) will change according to new A, 
+    ones before (A) will always relative to the value in original input file.
+    
+    :param dicPara: a dictionary indicate what to scan, like ecutwfc:15,20~40~2;ecutrho_x:4~12~2
+    :param b_new_prefix: whether to use summary string as the prefix, which is used to keep the output data
+    '''
+    #check output dir
+    if ( not os.path.exists(stOutputFolder) ):
+        os.mkdir(stOutputFolder)
+    
+    stInput = os.path.splitext(stInput)[0] #get name
+    aInput = QESP_PW_input(stInput+".in")
+    stInitPath = os.path.join(stOutputFolder,stInput+"_init.in")
+    
+    
+#    for stName,listPara in dicPara.iteritems():
+#        if ( hasattr(aInput,stName) ):# if a exist property
+#            for aPara in listPara:
+    for aParaSet in dicPara:
+        #Built information string
+        stParaSummary = ""
+        for aNamePara in aParaSet:
+            stParaSummary += aNamePara[0] + "-" + str(aNamePara[1]) + "+"
+        stParaSummary = stParaSummary[:-1] #cut final "+"
+        #Build input content
+        stInfo ="New Job " + stParaSummary + " start at " + time.strftime("%Y-%m-%d %H:%M:%S") 
+        print(stInfo)
+        sys.stdout.flush()
+        aInputNew = copy.deepcopy(aInput)        
+
+        if (b_new_prefix):
+            aInputNew.prefix = "%s_%s" % (aInput.prefix,stParaSummary)
+        
+        #for aNamePara in aParaSet:
+            #stName = aNamePara[0]
+            #aPara = aNamePara[1]
+        for stName,aPara in aParaSet:
+            if (stName == "ecutrho_x" ): # respect to ecutwfc, not absolute value
+                aInputNew.ecutrho = aInputNew.ecutwfc * float(aPara)
+            elif ( stName == "kp"): #k-points scan
+                l3kp = [int(x) for x in aPara.split('x')]
+                if ( len(l3kp) != 3):
+                    raise ValueError,"%s is not in the k-points format as axbxc" % aPara
+                aInputNew.stKPtMode = "automatic"
+                aInputNew.listKPtGrid = l3kp + aInputNew.listKPtGrid[3:6] 
+            elif ( stName == "dft"):# change pseduo potential
+                if ( hasattr(aInputNew,"input_dft") ):
+                    raise ValueError,"dft functional scan is inapproiate if input_dft is specified"
+                reAtom = re.compile("(.*)\.(.*?)-(.*).UPF")
+                for aAtom in aInputNew.listAtomSpecies:
+                    aMatch = reAtom.match( aAtom.stPP)
+                    if ( aMatch != None):
+                        st1 = aMatch.group(1)
+                        st2 = aMatch.group(2)
+                        st3 = aMatch.group(3)
+                         
+                        #Add C6/D in attribute
+                        aPara2 = aPara.lower()
+                        if ( aPara2.find("+c6") != -1 or aPara2.find("+d") != -1 or aPara2.find("+D") != -1):
+                            aPara = aPara2.replace("+c6","").replace("+d","").replace("+D","")
+                            aInputNew.london = True
+                             
+                        aAtom.stPP =  "%s.%s-%s.UPF" % (st1,aPara,st3)
+                    else:
+                        raise ValueError,"Unsupported Pseudo-potential name format in pw.x input file"
+            elif (stName == "alat"): #Change the alat unit
+                aInputNew.celldm[1] = aInput.celldm[1] * aPara
+            elif ( "cell" in stName):# change cell, in format like cell_c
+                stName = stName.split("_")[-1]
+                aCell = aInputNew.GetCell()
+                #only c and tmdc is supported currently
+                if ( stName == "c" or stName == "tmdc" or stName == "clayer"):
+                    aCell.ChangeCell(stName+":"+str(aPara))
+                    aInputNew.ReadFromCell(aCell)
+                else:
+                    raise ValueError,"Unsupport options %s" % stName
+            else:
+#Set value which should be a float number
+                if (stName.endswith("_ref")): #Relateive
+                    stName2 = stName[:-4]
+                    setattr(aInputNew,stName2,aPara*getattr(aInput,stName2))
+                else:
+                    setattr(aInputNew,stName,aPara)
+                    
+        #prepare files            
+        stNew = "%s_%s" % (stInput,stParaSummary)
+        stNewFile = stNew + ".in"
+        stNewOut = stNew +".out"
+        stNewErr = stNew + ".err"  
+        
+        #detect if this input file exists;if so ,treat as skip
+        if ( os.path.exists(stNewFile)):
+            print(stNewFile + " already exists. Skipped")
+            continue
+        
+
+#Run a calculation
+        cwd = os.getcwd()
+        os.chdir(stOutputFolder)
+        aInputNew.WriteToFile(stNewFile)
+        if (nProcess != -1):
+            stCommand = "%s < %s > %s 2>%s" % (f_GetExecFullPath("pw.x"),stNewFile,stNewOut,stNewErr)
+            stInfo = "Execute %s" % stCommand 
+            print(stInfo)
+
+            status,stStdOut = f_env_RunMpirunCommand(stCommand,nProcess)                
+            if ( status != 0):
+                print("\33[31mError in command:\33[m %s" % stCommand)
+            print("End Job " + str(aPara) + " started at " + time.strftime("%Y-%m-%d %H:%M:%S"))      
+            sys.stdout.flush()
+        os.chdir(cwd)
+    return           
+              
+                
+                
+
+@deprecated
+def QESP_ScanOld(nProcess=1,stLatticeType="c",listPara=[],stInput="",stOutputFolder=""):
+    '''
+    Scan in Quantum Espresso
+    '''
+    #check output dir
+    if ( not os.path.exists(stOutputFolder) ):
+        os.mkdir(stOutputFolder)
+        
+    
+    #read
+    fIn = open(stInput+".in","r")
+    list_stLine=fIn.readlines()
+    for i,stLine in enumerate(list_stLine):
+        if ( stLine.find('celldm(3)') != -1):
+            arLine = stLine.split()
+            fC=float(arLine[-1])
+            nLine=i
+            break
+    fIn.close()
+    stInitPath = os.path.join(stOutputFolder,stInput+"_init.in")
+    shutil.copy(stInput+".in", stInitPath)
+    print("Parameter to scan: c: %13.6f" % fC)
+
+    #scan
+    for aPara in listPara:
+        print("Current Scanning: %13.6f" % aPara)
+        stNewFile = os.path.join(stOutputFolder,stInput+"_"+str(aPara)+".in")
+        stNewOut = os.path.join(stOutputFolder,stInput+"_"+str(aPara)+".out")
+        fOut= open(stNewFile,"w")
+        for i,stLine in enumerate(list_stLine):
+            if ( i == nLine ):
+                fOut.write("  celldm(3) =%13.6f" % (fC*(1+aPara)))
+            else:
+                fOut.write(stLine)
+        fOut.close()
+        stCommand = "%s < %s > %s" % (f_GetExecFullPath("pw.x"),stNewFile,stNewOut)
+        #if ( nProcess != 1):
+        #    stCommand = ("mpirun -np %d %s" % (nProcess,f_GetExecFullPath("pw.x"))) + stCommand 
+        #else:
+        #    stCommand = "pw.x " + stCommand
+        print("Execute %s" % stCommand)
+        #status,stStdOut = commands.getstatusoutput(stCommand)
+        status,stStdOut = f_env_RunMpirunCommand(stCommand,nProcess)
+        if ( status != 0):
+            print("Error in command: %s" % stCommand)
+    shutil.copy(stInitPath,stInput+".in")
+                
+        
+def QESP_BatchPP(stFileName,dicPara):
+    '''
+    Generate a series of Pseudo-Potential from one template
+    Most character will be change to lowercase
+    '''
+    ppOld = QESP_ld1_input(stFileName)
+    for aParaSet in dicPara:
+
+        #Build input content
+        ppNew = copy.deepcopy(ppOld)     
+        
+        for aNamePara in aParaSet:
+            stName = aNamePara[0]
+            aPara = aNamePara[1]
+            setattr(ppNew,stName,aPara)
+        
+        #always set author to tmc
+        ppNew.author = "TMC" 
+        #generate file name
+        
+        #change DFT name in filename to a short one
+        stDFT = ppNew.dft.lower()
+        dicDFT = {"vdw-df":"vdwDF","sla+pw+pbx+vdw":"pbe+vdw"}
+        if ( dicDFT.has_key(stDFT)):
+            stDFT = dicDFT[stDFT]
+        
+        stMethod = "rrkj"
+        if ( hasattr(ppNew,"tm")):
+            if ( ppNew.tm == True):
+                stMethod ="tm" 
+                
+        stType = "error"
+        if ( ppNew.pseudotype == 2):
+            stType = "nc"
+        elif ( ppNew.pseudotype == 3):
+            stType = "us"
+        else:
+            print("Fatal Error: unknown pseduo-potential type (Ultrasoft or Norm-Conserving?)")
+        
+        
+        stName = "%s.%s-%s%s-%s" % (ppNew.title,stDFT,stMethod,stType,ppNew.author.lower())
+        
+        ppNew.file_pseudopw = stName + ".UPF"
+        
+        ppNew.WriteToFile(stName+".in") 
+        
+        stInfo ="New PP " + stName + " build start at " + time.strftime("%Y-%m-%d %H:%M:%S") 
+        print(stInfo)
+        sys.stdout.flush()
+        
+        status,stOutput = commands.getstatusoutput("ld1.x < %s.in >>pp.out 2>&1 " % stName)
+        if ( status != 0 ):
+            print("Error in %s" % stName)
+    return 
+
+
+
+def Main(ArgList):
+    description = '''Scan arbitary parameter in pw.x input file or ld1.x input file.\n
+    Example:
+      pq_scan -r "ecutwfc:20~40~2;ecutrho_x:8,12" -i BN-pw-vcr -d BN-scan -p 0 #  do a calculation, scan ecut for convergence
+      pq_scan -r "cell_c:0.9~1.5~0.1" -i BN -d BN -p 0                         # do a calculation, scan c axis
+      pq_scan -r "alat:0.9~0.01~1.0"                                           # do a calculation, scan celldm(1)
+      pq_scan -pp -r "dft:lda,pbe,sla+pw+pbx+vdw" -i B.rrkjus.in               # generate multiple pseudo potential
+      pq_scan -s -r "c;energy;time;dist1,2" -f "BN-"                           # read all file start with "BN-" and show information 
+
+    One can choose any parameters in the namelist.
+    Add _ref to use a relative value in the namelist. 
+    '''
+    parser = ArgumentParser(description=description)
+
+#Parameter for scanning
+    parser.add_argument("-p",dest="stProcess",type=int,default="-1",help="Process Count; If set to 0, use hostfile; If set to -1, program will not run")
+    parser.add_argument("-r",dest="stPara",help="Parameter to scan")
+    parser.add_argument("-i",dest="stInput",help="Original Input file for qesp")
+    parser.add_argument("-d",dest="stOutFolder",help="Directory to place generated input files for qesp")
+    parser.add_argument("--saveout",dest="bSaveOut",action="store_true",default=False,help="Do not overwrite the case.save folder by using different prefix")
+#Parameter for reading
+    parser.add_argument("-s",dest="bShow",action="store_true",default=False,help="Show scan result")
+    parser.add_argument("-f","--prefix",dest="stCaseName",help="Common prefix of filename to read")
+#Parameter for PP
+    parser.add_argument("--pp",dest="bPP",action="store_true",default=False,help="Batch generate pseudo-otential")
+
+    options = parser.parse_args()
+
+    stCaseName = options.stCaseName
+    
+    if ( stCaseName == None):
+        stCaseName = f_GetCaseName()
+        
+    #if ( options.bTest ):
+    #    aInput = QESP_PW_input("CG-pbe+c6-r-vcr_london_rcut_200.0.in")
+    #    aInput.WriteToFile("CG-test-out.in")
+    #    return
+    
+    if ( options.bShow):
+        if ( options.stPara == None):
+            options.stPara = "energy"
+        #QESP_ScanRead(options.stPara,stCaseName)
+        QESP_BatchRead(options.stPara,stCaseName)
+    elif ( options.bPP):
+        QESP_BatchPP(options.stInput,f_Split_EnumerateRangeString(options.stPara))
+    else:
+        QESP_Scan(f_Split_EnumerateRangeString(options.stPara),options.stInput,options.stOutFolder,int(options.stProcess),options.bSaveOut)
+        
+
+if __name__ == "__main__":
+    Main(sys.argv)
+    

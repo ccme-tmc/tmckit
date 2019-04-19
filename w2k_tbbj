@@ -1,0 +1,295 @@
+#!/bin/tcsh -f
+# This shell script is used to perform a TBmBJ calcultion based on an already converged SCF using LDA or PBE 
+#
+# external programs/scripts
+#  x_lapw
+#  pw_bandanaly
+ 
+  set fullname=$0
+  set bindir=$fullname:h
+  set name=$fullname:t
+  set logfile=:log
+
+  setenv SCRATCH ./
+
+  alias AWK gawk 
+  alias exec   '(x_lapw  -f $file \!:*) ; (if ($status) goto error); (echo " running " \!:*) >>$logfile;'
+  alias print 'echo  \!:* | tee -a $outfile '
+
+  set a_revTB = 0.386
+  set b_revTB = 0.654
+
+  set full_command="$name $*" 
+  set scf_opt
+  set mode=0 
+  set para 
+  set sp=0
+  set soflag
+  set start=0
+  set exit=0
+  set stop=-1
+  set nproc=-1
+  set mbj='orig'
+
+  unset file  
+  unset save_orig 
+  unset grr 
+  unset pre_xc
+  
+
+ 
+  alias sb 'shift; breaksw'       #definition used in switch
+  while ($#argv)
+    switch ($1)
+    case -ex:
+      shift; set stop=$1; sb 
+    case -h:
+      goto help  
+
+    case -grr:
+      shift; set grr=$1; sb 
+    case -mbj:
+      shift; set mbj=$1; sb 
+
+    case -m:
+      shift; set mode=$1; sb 
+    case -pxc:
+      shift; set pre_xc=$1; sb 
+
+    case -save:
+      set save_orig; sb 
+
+    case -st:
+      shift; set start=$1; sb 
+
+    # Options for SCF
+    case -sp:
+      shift; set sp=$1; sb 
+    case -p:
+      set scf_opt="$scf_opt -p"; set para='-p'; set nproc=0; sb
+    case -orb:
+      set scf_opt="$scf_opt -orb"; sb
+    case -so:
+      set scf_opt="$scf_opt -so"; set soflag='-so'; sb
+    case -o:
+      shift; set scf_opt="$scf_opt $1";sb 
+    default:
+      echo "Undefined option $1 !" 
+      goto help ; sb
+    endsw
+  end
+  
+  # if $file not set, set default vaule of the filename to the name of the working directory
+  # make some simple tests to be sure $file is correct 
+  #
+
+  w2k_rename 
+  set wdir=`pwd`
+  if !($?file) then
+    set file=$wdir:t
+  endif
+
+  if !(-e $file.struct ) then 
+    echo " ERROR: Current directory does not have $file.struct!" 
+    goto error 
+  endif
+  set outfile=$file.outmbj
+
+  switch($sp)
+  case 0: 
+    set scf_cmd="run_lapw"; breaksw
+  case 1:
+    set scf_cmd="runsp_c_lapw"; breaksw 
+  case 2:
+    set scf_cmd="runsp_lapw"; breaksw
+  case 3:
+    set scf_cmd="runafm_lapw"; breaksw 
+  default:
+    echo "unsupported option for sp:$sp"
+    goto help; breaksw
+  endsw 
+
+# chech whether it is a complex calculation
+  w2k_chkcmplx -f $file 
+  if ($status) then 
+    set cmplxflag='-c'
+    set cmplx='c'
+  else
+    set cmplx
+    set cmplxflag
+  endif 
+
+# check case.inm
+# the presense of MSR1a may interfere, so change it to MSR1 
+  mv -f $file.inm $file.inm.tmp
+  AWK '{ if ( NR==1 && $1 == "MSR1a" ) {\
+           $1="MSR1 "; \
+           $2=sprintf("%7.2f",$2); \
+           print $0 \
+         } else {print $0} \
+      }' $file.inm.tmp > $file.inm
+
+  if ( $start == 1 ) goto vresp
+  if ( $start == 2 ) goto in0
+  if ( $start == 3 ) goto tbbj
+
+#
+# preform a pre-xc calulation 
+#
+pre_xc:
+  if($?pre_xc) then 
+    print "Perform a pre-calculation with ixc=$pre_xc"
+    # change case.in0
+    mv -f $file.in0 $file.in0_old
+    AWK -v xc=$pre_xc '{if(NR==1) {$2 = xc ;print $0 } else{print $0 }}' $file.in0_old >>& $file.in0
+    $scf_cmd $scf_opt -ec 0.00001 
+  endif 
+
+  # save LDA/PBE
+  if ($?save_orig) then 
+    save_lapw -s -d save-orig
+  endif 
+
+#
+# prepare case.inm_vresp
+#
+vresp:
+  print "Calculate vresp"
+  cat <<EOF >$file.inm_vresp 
+PRATT  0.0   NO   (BROYD/PRATT, extra charge (+1 for additional e), norm)
+1.00            mixing FACTOR for BROYD/PRATT scheme
+1.00  1.00      PW and CLM-scaling factors
+9999  8         idum, HISTORY
+EOF
+
+# set R2V in case.in0
+  set lr2v=`grep 'NR2V  ' $file.in0`
+  if("$lr2v" != '' ) then
+    print '  R2V is not set ! '
+    mv -f $file.in0 $file.in0.tmp
+    AWK '{if(index($0,"NR2V")){$1 = "R2V";printf "%-20s\n", $1 FS $2}else{print $0}}' $file.in0.tmp >>& $file.in0
+    rm -f $file.in0.tmp
+    print  ''
+  endif
+
+  # perform a SCF cycle 
+  $scf_cmd $scf_opt -i 1 -NI 
+  if ($status) goto error 
+
+  if ($stop == 0) goto stop_now
+
+in0:
+
+  # change case.in0
+  mv -f $file.in0 $file.in0_old-tb
+  AWK '{if(NR==1) {$2 = "28";print $0}else{print $0}}' $file.in0_old-tb >>& $file.in0
+
+  if($?grr) then 
+    print "grr is given as a number"
+    echo $grr > $file.grr 
+    if ( -f $file.in0_grr ) then 
+      mv -f $file.in0_grr $file.in0_grr-bak
+    endif
+
+  else  
+    print "calculate grr on-the-fly"
+    # create case.in0_grr
+    AWK '{if(NR==1) {$2 = "50";print $0}else{print $0}}' $file.in0 >& $file.in0_grr
+
+    switch ($mbj)
+    case 'bj':
+      AWK 'BEGIN{ print "1.0 \n 0.0\n 1.0\n 1.0\n"}' > $file.in0abp; breaksw
+    case 'orig':
+      AWK 'BEGIN{ print "-0.012 \n 1.023 \n 0.5 \n 1.0\n"}' > $file.in0abp; breaksw 
+    case 'new':
+      AWK 'BEGIN{ print "0.488\n 0.500\n 1\n 1.0\n "}' > $file.in0abp; breaksw
+    case 'sc':
+      AWK 'BEGIN{ print "0.267\n 0.656\n 1\n 1.0\n "}' > $file.in0abp; breaksw
+    endsw 
+  endif 
+
+  if ($stop == 1) goto stop
+
+tbbj:
+  if ( $mode == 0 ) then 
+    print  "run TBmBJ calculation in the perturbative scf"
+    mv -f $file.inm $file.inm.tmp
+    AWK '{ if (NR==2) { $1 = "1.0"; print $0} \
+         else {print $0} \
+      }' $file.inm.tmp > $file.inm
+    $scf_cmd $scf_opt -i 1 -NI 
+    if ($status) goto error
+    goto done 
+  endif 
+
+  if ( $mode == 2 ) then # perform SCF calculation with fixed grr 
+    print "run self-consistent TBmBJ with fixed grr"
+    mv -f $file.in0_grr $file.in0_grr-bak
+  else
+    print "run self-consistent TBmBJ "
+  endif  
+
+  print " run SCF with mixing=0.10"
+  mv -f $file.inm $file.inm.tmp
+  AWK '{ if (NR==1) { $1="PRATT"; $2=sprintf("%7.2f",$2); print $0 }\
+         else if (NR==2) { $1 = "0.10"; print $0} \
+         else {print $0} \
+      }' $file.inm.tmp > $file.inm
+  $scf_cmd $scf_opt -i 2000 -NI  -ec 0.00001 -cc 0.0001
+  if ($status) goto error
+
+  print " run SCF with mixing=0.25 to avoid false convergence"
+  mv -f $file.inm $file.inm.tmp
+  AWK '{ if(NR==2) { $1 = "0.25"; print $0} \
+         else {print $0} \
+      }' $file.inm.tmp > $file.inm
+  $scf_cmd $scf_opt -i 200 -NI -ec 0.00001 -cc 0.0001
+  if ($status) goto error
+
+done:
+  pw_bandanaly $soflag -s $sp -fer 1  $para | tee -a $outfile
+
+stop_now:
+  exit 0
+
+help:
+  cat <<EOF 
+  Usage: `basename $0` [options]     # to be used with WIEN2k v14.1 or later version      
+  Options:
+    -mbj <mbj>      # indicate how the value of c is set 
+                       "orig" -- Tran-Blaha (2009)
+                       "bj"   -- Becke-Johnson (2006)
+                       "new"  --New parameterization in Koller etal, PRB85, 155109
+                       "sc"   - New parameterization for semiconductors (gaps up to 7 eV)
+
+    -grr <grr=orig>   # indicate how to grr information 
+                      #  if not present, then grr is calculated on the fly in terms of mbj 
+                      #  if present, fixed grr is used
+
+    -h                # write help and exit 
+    -m <mode>         #  0 (default) -- perturbative (one-shot)  
+                      #  1  fully self-consistent
+                      #  2  self-consistent with fixed grr 
+    -pxc <pre_xc>     # perform a pre-calculation using ixc=pre_xc 
+    -save             # save the original SCF files into ./save-orig
+    -st <0/1/2/3>     # start from beginning/vresp/in0/tbbj 
+   
+  options for SCF 
+    -orb              # LDA/GGA+U calculation 
+    -p                # run lapw1/2 in parallel scf
+  
+    -sp  < 0/1/2/3>   # option for spin polarized cases
+                      #  0 -- run_lapw 
+                      #  1 -- runsp_c_lapw  
+                      #  2 -- runsp_lapw  
+                      #  3 -- runafm_lapw  
+    -so               #  add spin-orbit coupling  
+    -o <'other_options'>  # other options for SCF 
+EOF
+
+  exit 0
+
+error:
+  echo "ERROR when running $0"
+  exit 1 
+

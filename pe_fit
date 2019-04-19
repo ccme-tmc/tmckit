@@ -1,0 +1,280 @@
+#!/usr/bin/env python
+import scipy
+from optparse import OptionParser
+
+import sys,subprocess,copy,os
+import math
+import time
+import multiprocessing #Warning : any process called by multiprocessing used pickle to transfer paramters, so we must avoid ( at least be cautious ) to use functions that accept class instance as parameters in Pool.async or Pool.map !
+
+from py_utils import EmptyFormatter
+from band_utils import f_Band_ReadFromFile,f_Band_GetVBMFromElectron,f_Band_Diff2RMSD,f_Band_GetGap
+from yaeh_utils import yaeh_ReadBand,yaeh_input,PEMiniSingleInput,PEMiniMultiInput,EHParaConstrain
+from optimize import wrap_function
+from py_xmlio import XMLSerilizer
+
+##@var nProcess
+# global parameter to determine how many process can be used
+nProcess = 0
+
+
+def f_CalcSingle_Prepare(sIn,stFolder="."):
+    '''
+    Prepare input files for yaeh calculation
+    :param sIn: the PEMiniSingle object to indicate calculation
+    :param stFolder: the folder where the calculation contains
+    '''
+    stCurrent = os.getcwd()
+    os.chdir(stFolder)
+
+    sIn.yIn.ReloadParaFromBase(sIn.ParaBase)#To update calculation, update parameter database
+    #print("Start calculation under %s" % os.getcwd())
+    sIn.yIn.WriteToFile(sIn.stOutputFile)
+    os.chdir(stCurrent)
+
+    return 0
+
+def f_CalcSingle_Run(stCompound,stInputFile,nElectron,bandRef,dVBMRef,listBandWeight,dGapWeight,stFolder="."):
+    '''
+    Run YAeHmop calculations
+    The parameters are that in a PEMiniSingleInput; to avoid multiprocess problem, every parameters ( all of them are basis types ) are transfered one-by-one instead of the class
+    :param stFolder: the folder where the calculation contains
+    :return : a 3-element tuple with Compound Name ( which is used to mark which case is calculated ), Gap and RMSD in this calculation
+    '''
+    #print(stCompound,stInputFile,nElectron,stFolder)
+    stCurrent = os.getcwd()
+    os.chdir(stFolder)
+    subprocess.check_call("`which ehbind` %s &> /dev/null" % stInputFile,shell=True)
+
+    aKPt,bandNew,dFermi,nElectronError,nSpin = yaeh_ReadBand("%s.band" % stInputFile)
+    dDiff = f_Band_Diff2RMSD(bandNew,f_Band_GetVBMFromElectron(bandNew,nElectron),bandRef,dVBMRef,None,listBandWeight)
+    if ( math.isnan(dDiff) ): #Unphysical result; give it to a fixed value. NaN will stop minimize routine immediately
+        print("NaN eigen value @ %s" % stCompound )
+        dDiff = 1000
+
+    #Calculate gap
+    f = open("single.out","a") #Single-c case output
+    dGap =0.0
+    if ( dGapWeight != 0.0):
+        dFermi = f_Band_GetVBMFromElectron(bandNew,nElectron)
+        dGap,dt,n1 = f_Band_GetGap(bandNew,dFermi,False)
+        if ( dGap == None): #Error in get gap, set to -10
+            dGap = -10
+        f.write("Current Gap: %f\n" % dGap)
+
+    f.write("Current RMSD: %f\n" % dDiff)
+
+    f.close()
+
+    os.chdir(stCurrent)
+
+    return (stCompound,dDiff,dGap)
+
+def f_CalcSingle(sIn,stFolder="."):
+    f_CalcSingle_Prepare(sIn,stFolder)
+    (stCompound,dDiff,dGap) = f_CalcSingle_Run(sIn.stCompound,sIn.stOutputFile,sIn.nElectron,sIn.bandRef,sIn.dVBMRef,sIn.listBandWeight,sIn.dGapWeight,stFolder)
+    #store result to input object 
+    sIn.dGap = dGap
+    sIn.dRMSD = dDiff
+    return sIn
+
+
+#def f_Calc(paraNew,yIn,stOutputFile,bandRef,dVBMRef,dGapRef,listBandWeight,dGapWeight):
+def f_CalcSingle2(sIn,stFolder="."):
+    '''
+    Calculate RMSD with give parameter database between calculated system and reference system
+    :param sIn: the PEMiniSingle object to indicate calculation
+    :param stFolder: the folder where the calculation contains
+    '''
+    stCurrent = os.getcwd()
+
+    os.chdir(stFolder)
+
+    sIn.yIn.ReloadParaFromBase(sIn.ParaBase)#To update calculation, update parameter database
+    #print("Start calculation under %s" % os.getcwd())
+    sIn.yIn.WriteToFile(sIn.stOutputFile)
+    subprocess.check_call("`which ehbind` %s &> /dev/null" % sIn.stOutputFile,shell=True)
+
+    aKPt,bandNew,dFermi,nElectron,nSpin = yaeh_ReadBand("%s.band" % sIn.stOutputFile)
+    dDiff = f_Band_Diff2RMSD(bandNew,f_Band_GetVBMFromElectron(bandNew,sIn.nElectron),sIn.bandRef,sIn.dVBMRef,None,sIn.listBandWeight)
+    if ( math.isnan(dDiff) ): #Unphysical result; give it to a fixed value. NaN will stop minimize routine immediately
+        dDiff = 1000
+
+    #Calculate gap
+    f = open("single.out","a") #Single-c case output
+    dGap =0.0
+    if ( sIn.dGapWeight != 0.0):
+        dFermi = f_Band_GetVBMFromElectron(bandNew,sIn.nElectron)
+        dGap,dt,n1 = f_Band_GetGap(bandNew,dFermi,False)
+        if ( dGap == None): #Error in get gap, set to -10
+            dGap = -10
+        f.write("Current Gap: %f\n" % dGap)
+
+    f.write("Current RMSD: %f\n" % dDiff)
+
+    f.close()
+
+    #store result to input object 
+    sIn.dGap = dGap
+    sIn.dRMSD = dDiff
+
+    os.chdir(stCurrent)
+
+    #return (dDiff**2+(dGap-sIn.dGapRef)**2*sIn.dGapWeight)**0.5
+    return sIn #Return sIn as it is not modified in multi-process 
+
+
+def f_CalcMulti(paraNew,mIn,bSkipCompareOnly=True):
+    '''
+    Calculate average RMSD of multiple compound
+    If new parameter is None, then use parameter currently stored in paraNew
+    :param bSkipViewOnly: do not calculate single case with tag "CompareOnly". Should be true for fit and false for compare result display
+    :param nProcess: the number of process available in the calculation
+    '''
+    global nProcess
+
+#Deal with new parameters
+    if ( paraNew != None):
+       mIn.yaehDatabase.ReloadPara(paraNew)
+
+#Multi process
+#Multi process here is actually not necessary as we invoke yaeh also in extra process, which creates two times of number of yaeh processs.
+#However the listening process is rather cheap so do not mind it.
+    #print("Processes: %i" % nProcess)
+    if ( nProcess != 0):
+        pool = multiprocessing.Pool(processes=nProcess)
+
+#Deal with single calculation in each folder
+    dDiff = 0.0
+    stCwd = os.getcwd()
+    listDiff = []
+
+    for sIn in mIn.listCompoundConfig:
+        if ( bSkipCompareOnly and sIn.bCompareOnly):
+            continue
+
+        stFolder = sIn.stCompound
+
+        #os.chdir(stFolder)
+        if ( nProcess == 0): #Seqential calculation
+            listDiff.append(f_CalcSingle(sIn,stFolder))
+        else:
+#Note if may difference
+            #print("New process...")
+            f_CalcSingle_Prepare(sIn,stFolder)
+            listDiff.append(pool.apply_async(f_CalcSingle_Run,(sIn.stCompound,sIn.stOutputFile,sIn.nElectron,sIn.bandRef,sIn.dVBMRef,sIn.listBandWeight,sIn.dGapWeight,stFolder)))
+
+        #os.chdir(stCwd)
+
+#Wait until complete
+    if ( nProcess != 0):
+        pool.close()
+        pool.join()
+        listDiff = [ x.get() for x in listDiff]
+#Update SingleInput in MultiInput, with correct order as when multi-process it is not updated
+        listDiff2 = []
+        for result in listDiff:
+            for sIn in mIn.listCompoundConfig:
+                if ( result[0] == sIn.stCompound):
+                    sIn.dRMSD = result[1]
+                    sIn.dGap = result[2]
+                    #Reconstruct listDiff to make it the same as that one in serial mode
+                    listDiff2.append(sIn)
+                    break
+        listDiff = listDiff2
+
+#Calculate average error
+    listDiff = [(sIn.dRMSD**2+(sIn.dGap-sIn.dGapRef)**2*sIn.dGapWeight)**0.5 for sIn in listDiff] #SingleInput to error
+
+    dDiff = sum([x**2 for x in listDiff]) #Sum error
+
+    dDiff = (dDiff/len(mIn.listCompoundConfig))**0.5 #Average error
+    print("Current multi-compounds RMSD: %f" % dDiff)
+
+    return dDiff
+
+def CallBackFunc(para):
+    print("Current parameter: ")
+    print(para)
+
+def f_PrintCalcMulti(mIn):
+    '''
+    Print detailed difference of each single compounds
+    '''
+    list_bak = []
+    for sIn in mIn.listCompoundConfig:
+#set weight of only top valence band and lowest condunction band.
+#3/4 of VB ( exclude s from sp only band ) will be set to weight=1 and CBM set to weight=1, otherwise 0
+        list_bak.append(sIn.listBandWeight)
+        sIn.listBandWeight = [ 0 for x in range(0,sIn.nElectron/8)] + [ 1 for x in range(0,sIn.nElectron/2 - sIn.nElectron/8) ] #VB
+        sIn.listBandWeight.append(1) #CBM
+
+#Calculation
+    f_CalcMulti(None,mIn,False)
+
+#restore and print result
+    print("Error summary:")
+    print("%-12s%7s%7s%7s%7s"%("Compound","Gap","Ref","Error","RMSD"))
+    i = 0
+    for sIn in mIn.listCompoundConfig:
+        sIn.listBandWeight = list_bak[i]
+        i += 1
+
+        print("%-12s%7.2f%7.2f%7.2f%7.2f" % (sIn.stCompound,sIn.dGap,sIn.dGapRef,sIn.dGap-sIn.dGapRef,sIn.dRMSD) )
+
+    return
+
+def Main(ArgList):
+    description = '''This program can be used to find optimized orbital parameters for yaeh program to make it approach to standard band structure.
+    Several fitting scheme based on band RMSD can be used.
+    In general, weight of each band included in fitting is 1, and unused band is 0.001 to avoid fluctuation
+    1. Use lowest N band, and set HOMO and LUMO weight to 10 if conduction band is included.
+    2. Use N band start from lowest i-th band. Weights of HOMO and LUMO are still 1.
+    3. Beside band RMSD, included gap with weight 1.
+    '''
+    global nProcess
+
+    usage = "%prog InputFile [-p PROCESSCOUNT]"
+    
+    parser = OptionParser(formatter=EmptyFormatter(),usage=usage,description=description)
+    parser.add_option("-p",dest="ProcessCount",default="0",help="The number of process used")
+
+    (options,args) = parser.parse_args(ArgList)
+
+    if ( len(args) != 2):
+        parser.error("incorrect number of arguments.")
+
+    tStart = time.time()
+
+    nProcess = int(options.ProcessCount)
+    if ( nProcess < 0 ):
+        nProcess = 0
+    if ( nProcess != 0):
+        print("Parallel process: %i" % nProcess)
+        if ( nProcess == 1):
+            print("Warning: only 1 process is used in parallel calculation, note the implentation is different from serial one!")
+
+#Prepare calculation
+    xpMulti = XMLSerilizer(globals(),"pe_fit_input.xsd")
+    mIn = xpMulti.Deserilize(args[1])
+    mIn.Load()
+    MinFunc = wrap_function(f_CalcMulti,tuple([mIn]))
+
+#Check parameters
+    if ( nProcess > len(mIn.listCompoundConfig)):
+        print("Warning: %i processes are specified when maximally possible parallel process is %i, you can lower to it without performance loss" % ( nProcess,len(mIn.listCompoundConfig))) 
+
+    if ( not mIn.bCompareOnly):
+#Start search
+        res = scipy.optimize.fmin_bfgs(MinFunc,x0=mIn.yaehDatabase.GetPara(),fprime=None,epsilon=0.001,gtol=1e-02,maxiter=1000,callback=CallBackFunc)
+
+#Store result
+        mIn.yaehDatabase.WriteToFile(mIn.EHParaFileOutput)
+
+#Show result
+    f_PrintCalcMulti(mIn)
+
+    print("Time used: %.2f s"% (time.time()-tStart) )
+
+if __name__ == "__main__":
+    Main(sys.argv);

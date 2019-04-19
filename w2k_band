@@ -1,0 +1,495 @@
+#!/bin/tcsh -f
+# This shell script calculate the band structure and prepare for plotting 
+#  A converged self-consistent calculation is assumed done in the current directory
+#
+ 
+set fullname=$0
+set bindir=$fullname:h
+set name=$fullname:t
+setenv SCRATCH ./
+
+set logfile=:log
+alias w2k_x   '(x_lapw  -f $file \!:*   | tee -a $outfile ) ;  (echo " running " \!:*) >>$logfile;'\
+               'if ($status) goto error '
+alias print 'echo  \!:* | tee -a $outfile '
+
+alias sb 'shift; breaksw'       #definition used in switch
+
+# Get options
+
+set cmplx
+set restart=-1
+set soflag
+set sotag 
+set so_lapw2
+set so_bandanaly
+set qtlflag
+set sp=0
+set sptag
+set orb
+set eece 
+set para 
+set gwopt = ( -band )
+set gwtag='_gw'
+set kstag='_ks'
+set bandtag='_band'
+set ierr_gw=0 
+
+unset so
+unset so0
+unset gw 
+unset qtl
+unset file
+unset lattice 
+while ($#argv)
+  switch ($1)
+    case -c:
+    case --complex:
+      set cmplx='-c'; sb 
+
+    case -l:
+    case --lattice:
+      shift; set lattice=$1:q; sb
+
+    case -f:
+    case --filename:
+      shift; set file=$1:q;  sb
+
+    case -gw:
+      shift; set gw; set gwopt = ( $gwopt -gw $1 ) ; sb
+
+    case -gwdir:
+      shift; set gwdir=$1; set gwopt = ( $gwopt -gwdir $1 ); sb
+
+    case -usegw0:
+      set gwtag='_gw0'; set gwopt = ( $gwopt -usegw0 ) ;  sb
+
+    case -orb:
+      set orb="-orb"; sb
+
+    case -qtl:
+      set qtl; set qtlflag='-qtl'; sb 
+
+    case -r:
+    case --restart:
+      shift; set restart=$1:q; sb 
+
+    case -s:
+    case --spin:
+      shift; set sp=$1:q; sb  
+
+    case -so:
+      set so; set sotag='so'; set soflag='-so'; sb
+    case -so0:
+      set so0; set so; set soflag='-so'; sb
+
+    case -h:
+    case --help:
+      goto help
+    default:
+      echo "$name: Internal error!" 
+      goto error 
+  endsw
+end
+
+
+#-----------------------------------------------------------------------#
+#                  Initilization                                        #
+#-----------------------------------------------------------------------#
+
+# set default vaule of the filename to the name of the working directory
+
+  if !($?file) then
+    set wdir=`pwd`
+    set file=$wdir:t
+  endif
+
+  set outfile=$file.outband 
+  if ( ($restart == 0 ) && ( -e $outfile ) ) rm -f $outfile
+  echo "w2k_band on " `date` >> $outfile
+
+  set lapw1_files  = ( energy$sptag vector$sptag output1$sptag scf1$sptag )
+  set lapwso_files = ( energyso$sptag vectorso$sptag outputso )
+  set lapw2_files  = ( qtl$sptag output2$sptag scf2$sptag )
+  set spagh_files =  ( ) 
+
+bakup:
+  set bakup_files = ( $lapw1_files )
+  if ($?qtl) then 
+    set bakup_files = ( $bakup_files $lapw2_files  )
+  endif 
+  if ($?so) then 
+    set bakup_files = ( $bakup_files $lapwso_files ) 
+  endif 
+  print ' - backup files used in SCF'
+
+  foreach ext  ( $bakup_files )
+    if( (-e $file.$ext) && !( -e $file.${ext}-scf ) ) then
+      print "  backup  $file.$ext => $file.${ext}-scf "
+      mv $file.$ext $file.${ext}-scf 
+    endif
+  end
+
+  switch ($restart)  
+  case 0 :
+    print "$name : start from lapw1";  goto lapw1
+  case 1 :
+    print "$name : start  from lapw2"; goto lapw2
+  case 2 :
+    print "$name : start from gw";     goto gw 
+  case 3 :
+    print "$name : start from spagh";  goto spagh 
+  default:
+    print "$name : start from the begining"; 
+  endsw 
+
+init:
+  if ( $sp != 0 ) set sptag='up'
+
+  # Prepare *.klist_band file
+  if !(-e $file.klist_band) then
+    if !($?lattice) then
+      set tmp=`head -n 2 $file.struct | tail -n 1`
+      switch ($tmp[1])
+      case F:
+        set lattice="fcc"
+        breaksw;
+      case B:
+        set lattice="bcc"
+        breaksw;
+      case H:
+        set lattice="hcp"
+        breaksw;
+      default:
+        echo "Template klist does not exist, generate it yourself"
+        goto error
+        breaksw
+      endsw
+    endif
+
+    cp -f $WIENROOT/SRC_templates/$lattice.klist $file.klist_band
+    if($status) then 
+      echo "Fail to find appropriate klist_band"
+      echo " -- try to use xcrysden to generate one !! "
+      goto error 
+    endif 
+  endif
+
+#----------------------------------------------------------------------#
+#                    lapw1                                             #
+#----------------------------------------------------------------------#
+
+lapw1:
+  echo '---'
+  echo '--- lawp1 ---'
+  echo '---'
+  switch ($sp) 
+  case 0:
+    w2k_x $cmplx lapw1 -band; breaksw 
+  case 1: 
+    if ( ($?so) && !($?so0) )  then
+      w2k_x  -up $cmplx lapw1 -band; breaksw
+    else 
+      w2k_x  -up $cmplx $orb lapw1 -band; breaksw
+    endif 
+
+  case 2:
+    if ( ($?so) && !($?so0) )  then
+      w2k_x  -up $cmplx lapw1 -band
+      w2k_x  -dn $cmplx lapw1 -band
+    else 
+      w2k_x  -up $cmplx $orb lapw1 -band
+      w2k_x  -dn $cmplx $orb lapw1 -band
+    endif 
+    breaksw
+  endsw 
+
+#-----------------------------------------------------------------------#
+#                     lapwso                                            #
+#-----------------------------------------------------------------------#
+
+  if ($?so) then
+    print '---'
+    print '--- lawpso ---'
+    print '---'
+    set so_bandanaly="-so"
+    set so_lapw2="-so"
+    if($cmplx=='') set so_lapw2="-c -so"
+
+    if ($sp == 0 ) then
+      w2k_x $cmplx lapwso
+    else 
+      if($?so0) then 
+        w2k_x $cmplx -up lapwso
+      else
+        w2k_x $cmplx -up $orb lapwso
+      endif 
+    endif 
+  endif 
+
+#-----------------------------------------------------------------------#
+#                     lapw2                                             #
+#-----------------------------------------------------------------------#
+lapw2:
+  if($?qtl) then
+    print '---'
+    print '--- lawp2 ---'
+    print '---'
+    switch($sp)
+    case 0:
+      w2k_x $cmplx  -qtl -band $eece $para $so_lapw2 lapw2
+      breaksw
+    case 1:
+      w2k_x $cmplx  -qtl -band $eece $para $so_lapw2 -up lapw2
+      breaksw
+    case 2:
+      w2k_x $cmplx  -qtl -band $eece $para $so_lapw2 -up lapw2
+      w2k_x $cmplx  -qtl -band $eece $para $so_lapw2 -dn lapw2
+      breaksw
+    endsw
+  endif 
+
+#
+# generate case.energy_gw and case.vector_gw
+#
+gw:
+  if($?gw) then 
+    w2k_gwnvf -f $file -s $sp -band $gwopt 
+    if($status != 0 ) then
+      echo "ERROR when run_gwnv" 
+      echo "gw part is neglected"
+      unset gw
+    endif 
+
+    foreach ext ( energy$sptag vector$sptag )
+      mv -f $file.$ext $file.$ext$kstag
+      mv -f $file.$ext$gwtag $file.$ext
+    end
+
+    if ($?so0) then 
+      print '--- lawpso0/GW ---'
+      # make a copy of original so output files
+      foreach ext ( $lapwso_files )
+        mv $file.$ext $file.$ext$kstag 
+      end 
+
+      if ($sp == 0 ) then
+        w2k_x $cmplx lapwso
+      else
+        if($?so0) then 
+          w2k_x $cmplx -up lapwso
+        else 
+          w2k_x $cmplx -up $orb lapwso
+        endif 
+      endif
+
+    endif  # so
+
+    if($?qtl) then 
+      print '--- lawp2-qtl/GW ---'
+
+      # make a copy of original files used in lapw2 
+      foreach ext ( $lapw2_files   ) 
+        mv -f $file.$ext $file.$ext$kstag
+      end 
+
+      switch($sp)
+      case 0:
+        w2k_x $cmplx  -qtl -band $eece $para $so_lapw2 lapw2
+        breaksw
+      case 1:
+        w2k_x $cmplx  -qtl -band $eece $para $so_lapw2 -up lapw2
+        breaksw
+      case 2:
+        w2k_x $cmplx  -qtl -band $eece $para $so_lapw2 -up lapw2
+        w2k_x $cmplx  -qtl -band $eece $para $so_lapw2 -dn lapw2
+        breaksw
+      endsw
+
+      foreach ext ( $lapw2_files )  
+        mv -f $file.$ext $file.$ext$gwtag
+        mv -f $file.$ext$kstag $file.$ext
+      end
+    endif # lapw2-qtl
+
+    if($?so) then
+      foreach ext ( $lapwso_files )
+        mv -f $file.$ext $file.$ext$gwtag 
+        mv -f $file.$ext$kstag $file.$ext
+      end
+    endif 
+
+    foreach ext ( energy$sptag vector$sptag )
+      mv -f $file.$ext $file.$ext$gwtag
+      mv -f $file.$ext$kstag $file.$ext
+    end
+
+  endif # gw
+
+#-----------------------------------------------------------------------#
+#                          spaghetti                                    #
+#-----------------------------------------------------------------------#
+#  necessary files: 
+#     case.insp
+#     case.struct
+#     case.energy[up/dn] 
+#  optional:
+#     case.qtl[up/dn]
+#
+
+
+spagh:
+  print '---'
+  print '--- spagh ---'
+  print '---'
+
+  # A DOS calculation has been done, then extract the Fermi energy
+  # from $file.outputt which is more accurate than that one in $.scf
+  #
+  if ( -e $file.outputt$sptag ) then
+    print "  Extract Fermi energy from DOS output"
+    set efer=`grep "#EF" $file.outputt$sptag | tail -n 1 | awk '{print $2}'`
+  else
+    print "  Extract Fermi energy from SCF output"
+    set efer=`grep ":FER" $file.scf | tail -n 1 | awk '{print $NF}'`
+  endif
+  print "  KS Fermi Energy=" $efer
+
+  print '------------------- KS Band Gap ----------------------'
+  pw_bandanaly -f $file -efer $efer  -s $sp $so_bandanaly | tee -a $outfile
+
+  # Prepare *.insp file
+  # copy the template *.insp file if not existing in the current directory
+  if !(-e $file.insp) then
+    cp -f $WIENROOT/SRC_templates/case.insp $file.insp
+  endif
+
+  mv  -f $file.insp  $file.insp.old
+  awk '{ {if(NR==line) {$2=efer}}; {print $0}}'  \
+     line=9 efer=$efer $file.insp.old >$file.insp
+ 
+
+  switch ($sp)
+  case 0:
+    w2k_x  $cmplx $soflag $qtlflag spaghetti
+    breaksw
+  case 1:
+    w2k_x  $cmplx $soflag $qtlflag -up spaghetti
+    breaksw
+  case 2:
+    w2k_x  $cmplx $soflag $qtlflag -up spaghetti
+    w2k_x  $cmplx $soflag $qtlflag -dn spaghetti
+    breaksw
+  endsw
+
+  if($?gw) then
+    print '---'
+    print '--- spagh/GW ---'
+    print '---'
+
+    # A GW DOS calculation has been done, then extract the Fermi energy
+    # from $file.outputt_gw, otherwise use the one given in the output of gwnvf 
+    # 
+    if ( -e $file.outputt$sptag$gwtag ) then
+      print "  Extract Fermi energy from DOS output"
+      set efer_gw=`grep "#EF" $file.outputt$sptag$gwtag | tail -n 1 | awk '{print $2}'`
+    else
+      print "  Extract Fermi energy from gwnvf output "
+      set efer_gw=`grep :QP_FERMI_ENERGY $gwdir/$file.outgw | tail -1 | awk '{print $2}' `
+    endif
+
+    print "  GW Fermi Energy =" $efer_gw
+    awk '{ {if(NR==line) {$2=efer}}; {print $0}}'  \
+        line=9 efer=$efer_gw $file.insp >$file.insp$gwtag 
+
+    # make a copy of original KS input/output files 
+    if($?qtl) then 
+      set inputlist= ( insp energy$sotag$sptag qtl$sptag )
+    else 
+      set inputlist= ( insp energy$sotag$sptag )
+    endif 
+    set outlist = ( spaghetti${sptag}_ene spaghetti${sptag}_ps bands${sptag}.agr )
+
+    foreach ext ( $inputlist  )
+      mv $file.$ext $file.$ext$kstag
+      mv $file.$ext$gwtag $file.$ext
+    end
+
+    foreach ext ( $outlist ) 
+      mv $file.$ext $file.$ext$kstag
+    end 
+
+    print '------------------- GW Band Gap ----------------------'
+    pw_bandanaly -f $file -efer $efer_gw  -s $sp $so_bandanaly | tee -a $outfile
+
+    switch ($sp)
+    case 0:
+      w2k_x  $cmplx $soflag $qtlflag spaghetti
+      breaksw
+    case 1:
+      w2k_x $cmplx  $soflag $qtlflag -up spaghetti
+      breaksw
+    case 2:
+      w2k_x  $cmplx $soflag $qtlflag -up spaghetti
+      w2k_x  $cmplx $soflag $qtlflag -dn spaghetti
+      breaksw
+    endsw
+
+    foreach ext ( $inputlist )
+      mv $file.$ext $file.$ext$gwtag
+      mv $file.$ext$kstag $file.$ext
+    end
+    
+    foreach ext ( $outlist ) 
+      mv $file.$ext        $file.$ext$gwtag
+      mv $file.$ext$kstag  $file.$ext
+    end 
+  endif
+
+recover:
+  print 'Recover files used in SCF'
+  foreach ext  ( $bakup_files )
+    if ( -e $file.$ext ) then
+      print " save " $file.${ext} "to" $file.${ext}-band 
+      mv $file.$ext $file.${ext}-band
+    endif 
+ 
+    if ( -e $file.${ext}-scf ) then
+      print " recover " $file.${ext}
+      mv $file.${ext}-scf $file.${ext}
+    endif
+  end
+
+done:
+  exit 0 
+
+error:
+  echo "error in run_band"
+  exit 1
+
+help:
+cat <<EOF 
+  Usage: `basename $0` [options]"
+   Options:"
+   -c,               # complex calculation
+   -l <lattice>,     # Lattice name
+   -f <file>,        # filename 
+   -gw <gwexe>
+   -gwdir <gwdir>
+   -usegw0           
+   -h,               # write help and exit 
+   -orb              # for orb (LDA+U etc.) calculations 
+   -qtl              # include band character 
+   -s <0/1/2>        # option for spin polarization 
+                     #   0 -- run_lapw non-spinpolarized
+                     #   1 -- runsp_c_lapw or runafm_lapw, or runsp_lapw -so 
+                     #   2 -- runsp_lapw
+   -so               # include spin-orbit coupling  
+   -so0              # include SOC perturbatively 
+   -r <0/1/2/3>      # Option for restart  
+       0 -- start from lapw1
+       1 -- start from lapw2 (if -qtl is present) 
+       2 -- start from gw    (if -gw is present ) 
+       3 -- start from spaghetti 
+EOF
+exit 1

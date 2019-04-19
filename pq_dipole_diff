@@ -1,0 +1,413 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+import sys,os,math,copy
+from optparse import OptionParser 
+
+from qesp_utils import QESP_PW_input,f_QE_ReadAverage
+from common_math import f_Data_Sum,f_Data_Interpolate,NumericFunction
+import list_utils as lu
+
+Dipole_eV = 27.2116 * 4 * math.pi
+
+
+def f_Data_AddTail_Simple(data2):
+    '''
+    for a series of data [nx,y_n], [(n+1)x,y_{n+1}] .. [mx,y_m], make it as [(n-1)x,0],[nx,y_n/2] and [mx,y_m/2],[(m+1)x,0] to avoid the singularity of data when manipulate with other data without equal grid, and also avoid boundary overflow from numerical error 
+    '''
+    data = [[0.0,0.0]] + copy.deepcopy(data2) + copy.deepcopy([data2[-1]])
+    data[0][0] = data[1][0]*2-data[2][0]
+    data[1][1] = data[1][1] / 2
+    data[-2][1] = data[-2][1] / 2
+    data[-1][0] = data[-2][0] * 2 - data[-3][0]
+    data[-1][1] = 0
+    return data
+
+
+def f_Data_AddTail_Formula(data2,stMethod="exp",dTailCut=10**-8):
+    '''
+    Add a tail to one data with exactly the same grid
+
+    lin: for f(x) defined in n1~n2, add (2n1-n2)~n1 as 0~0.5 yn1, n2~(2n2-n1) as 0.5yn2~0, and n1~n2 region is adjusted as integration keeps
+    exp: exp(-ax), ensure at (2n1-n2) it is below yn1 * 10^-8 and thus can be safely discarded
+    simple: directly add one point value 0 at each side, and half the last point in original data
+    :param dTailCut: for exp method,dTailCut is the value of tail at n1 - (n2-n1)/2
+    '''
+#simple method
+    if ( stMethod == 'simple' ):
+        return f_Data_AddTail_Simple(data2)
+
+
+    dErr = dTailCut
+    data = []
+    dStep = data2[1][0]- data2[0][0]
+    nCount = len(data2)-1 # if tail length = data length, then the border is shared, so -1 point
+    i = 0
+    #find a good e
+    dExp = math.log(dErr)/(nCount)
+    while(i < nCount):
+        data.append( [ data2[0][0] + (i-nCount) * dStep,data2[0][1] /2 * math.exp ( dExp * (nCount-i) )  ])
+        i += 1
+    data.append([data2[0][0],data2[0][1]/2]) # half boundary
+    i = 1
+    while ( i < nCount):
+        data.append( [data2[i][0],data2[i][1] - data2[0][1] / 2 *  math.exp ( dExp * i) - data2[-1][1] /2 * math.exp ( dExp * ( nCount-i) ) ] )
+        i += 1
+    data.append([data2[nCount][0],data2[nCount][1]/2])
+    i = 1
+    while ( i <= nCount):
+        data.append( [data2[-1][0] + i * dStep,data2[-1][1] / 2 * math.exp ( dExp*i)])
+        i += 1
+    return data
+
+def f_Data_AddTail_Formula_Range(data2,x1,x2,stMethod="exp",dTailCut=10**-8):
+    '''
+    Add tail to a data from arbitary start point ( all data not in the boundary will be discraded )
+    The grid will be 3x as original data
+
+    lin: for f(x) defined in n1~n2, add (2n1-n2)~n1 as 0~0.5 yn1, n2~(2n2-n1) as 0.5yn2~0, and n1~n2 region is adjusted as integration keeps ( not implented yet )
+    exp: exp(-ax), ensure at (2n1-n2) it is below yn1 * 10^-8 and thus can be safely discarded
+    simple: directly add one point value 0 at each side, and half the last point in original data ( not implented yet)
+    :param x1: left start point
+    :param x2: right start point
+    :param dTailCut: for exp method,dTailCut is the value of tail at n1 - (n2-n1)/2
+    :return: a NumericFunction object
+    '''
+#simple method
+#    if ( stMethod == 'simple' ):
+#        return f_Data_AddTail_Simple(data2)
+
+    nf = NumericFunction(data2)
+    y1 = nf.Get(x1) /2 # half of boundary
+    y2 = nf.Get(x2) /2
+    nCount = len(data2)
+
+    dExp = math.log(dTailCut)/(x2-x1)
+
+    dStep = data2[1][0] - data2[0][0]
+
+    data = []
+    i = 0 
+    while ( i < nCount ):
+        data.append(  [ data2[0][0]- dStep*(nCount-i) , 0   ] )
+        i += 1
+    i = 0
+    while ( i < nCount ):
+        if ( data2[i][0] < x1 or data2[i][0] > x2):
+            data.append( [data2[i][0],0])
+        else:
+            data.append( [data2[i][0] ,data2[i][1]])
+        i += 1
+    i = 0
+    while ( i < nCount ):
+        data.append( [data2[-1][0]+ dStep*(i+1) ,0])
+        i += 1
+
+    nf = NumericFunction(data)
+    nf.ChangeRange(2*x1-x2,x1,lambda x:y1*math.exp( dExp*(x1-x)))
+    nf.ChangeRange(x2,2*x2-x1,lambda x:y2*math.exp( dExp*(x-x2)))
+    nf.ChangeRange(x1,x2,lambda x:-y1*math.exp(dExp*(x-x1))-y2*math.exp(dExp*(x2-x)) )
+
+    return nf
+
+def f_DiffNearestAtom(list_z,nfStd,zStd,x):
+    '''
+    Get reference data by align atom position in reference data and nearest atom in current data
+    :param list_z: list of atom position in current data, must in ascending order
+    :param nfStd: reference numeric function
+    :param zStd: atom position in reference data
+    :param x: the position in current data where we need reference data
+    '''
+    dZ = -1
+    for i in range(0,len(list_z)):
+        dZ = list_z[i]
+        if (  ( dZ > x  and i == 0 ) or i == len(list_z) -1 ): # < first or > last
+            break
+        if ( x < list_z[i+1]):
+            if ( x-list_z[i] < list_z[i+1]-x):
+                dZ = list_z[i]
+            else:
+                dZ = list_z[i+1]
+            break
+    #print("%f:%f in current,%f in ref %f-%f, value %f" % ( x,dZ,x-dZ+zStd,nfStd.xmin,nfStd.xmax,nfStd.Get(x-dZ+zStd)))
+    return nfStd.Get(x-dZ+zStd)
+
+
+def TestDiffBulkOneByOne():
+    data1 = f_Data_Interpolate(f_QE_ReadAverage("slab9/Ru3_charge_avg.out"),2)
+    #data2 = f_Data_Interpolate(f_QE_ReadAverage("bulk/Ru_charge_avg.out"),4)
+    data2 = f_QE_ReadAverage("bulk/Ru_charge_avg.out")
+    cSlab = QESP_PW_input("slab9/Ru3.in").GetCell()
+    listAtomSlab = cSlab.GetAtomList('bohr','conv')
+    listAtomSlab.sort(lambda a1,a2:cmp(a1[3],a2[3]))
+    listAtomSlabZ = [ x[3] for x in listAtomSlab]
+    cBulk = QESP_PW_input("bulk/Ru.in").GetCell()
+    nfSlab = NumericFunction(data1)
+    nfSlab.Write("slab.dat")
+    dRange = cBulk.fLatticeLength[2] / 4 
+    dAtomZ = cBulk.GetAtomList('bohr','conv')[0][3]
+    #find end ( 0 is always a good start )
+    nfBulk = NumericFunction(data2)
+    print("Bulk one atom charge before split:%f" % (nfBulk.Integrate(nfBulk.xmin,nfBulk.xmax,lambda x: x[1]/2)))
+    print("Split at %f of %f"% (dAtomZ*2,cBulk.fLatticeLength[2]))
+    nfBulk.Write("bulk_a.dat")
+    n = nfBulk.__Index__(dAtomZ*2,False)
+    #make [y1 ... yn] to  [0,y1/2,y2...y(n-1),yn/2,0] to avoid singularity at boundary of bulk data, which may cause one data point loss; it is crucial for large number - large number system !
+    #create new data
+    dRange = cBulk.fLatticeLength[2] / 4 + data2[1][0] # additional boundary to avoid points go out
+    data2 = [[0.0,0.0]] + data2[0:n+2]
+    data2[0][0] = 0-data2[2][0]
+    data2[1][1] = data2[1][1] / 2
+    data2[-2][1] = data2[-2][1] / 2
+    data2[-1][1] = 0
+    nfBulk = NumericFunction(data2)
+    nfBulk.Write("bulk.dat")
+
+    #Test data
+    print("Slab one atom charge:%f" % (nfSlab.Integrate(nfSlab.xmin,nfSlab.xmax,lambda x: x[1])/9))
+    print("Bulk one atom charge:%f" % (nfBulk.Integrate(nfBulk.xmin,nfBulk.xmax,lambda x: x[1])/1))
+    #return
+    print("Single Atom Range: %f, step %14.10f, atom pos %f" % (dRange,-data2[0][0],dAtomZ))
+    print(listAtomSlabZ)
+    #print([ [ x[3]-dRange,x[3]+dRange ] for x in listAtomSlab ])
+    #print([x[3] for x in listAtomSlab])
+    #print(listAtomSlab[1][3]-listAtomSlab[0][3],dRange*2)
+    #print(listAtomSlab[2][3]-listAtomSlab[1][3],dRange*2)
+
+    #delete bulk atom density one by one
+    #this cause several points at ends diff twice or not diff at all
+    #must deal with data of slab one by one
+    for nIndex in range(0,9):
+       print("Atom Range: ", listAtomSlab[nIndex][3] - dRange,listAtomSlab[nIndex][3] + dRange)
+       print("Shift: %14.10f" % (listAtomSlab[nIndex][3]-dAtomZ ))
+       nfSlab.ChangeRange(listAtomSlab[nIndex][3] - dRange,listAtomSlab[nIndex][3]+dRange,lambda x: -nfBulk.Get(x-listAtomSlab[nIndex][3]+dAtomZ))
+    #nfSlab.ChangeRange(listAtomSlab[0][3] - dRange,listAtomSlab[-1][3]+dRange,lambda x: -f_DiffNearestAtom(listAtomSlabZ,nfBulk,dRange,x))
+
+    nfSlab.Write("diff.dat")
+
+
+
+def TestDiffBulk():
+    data1 = f_Data_Interpolate(f_QE_ReadAverage("slab9/Ru3_charge_avg.out"),12,method=2)
+    #data1 = f_QE_ReadAverage("slab9/Ru3_charge_avg.out")
+    data2 = f_QE_ReadAverage("bulk/Ru_charge_avg.out")
+    cSlab = QESP_PW_input("slab9/Ru3.in").GetCell()
+    listAtomSlab = cSlab.GetAtomList('bohr','conv')
+    listAtomSlab.sort(lambda a1,a2:cmp(a1[3],a2[3]))
+    listAtomSlabZ = [ x[3] for x in listAtomSlab]
+    cBulk = QESP_PW_input("bulk/Ru.in").GetCell()
+    nfSlab = NumericFunction(data1)
+    nfBulk = NumericFunction(data2)
+    dRange = cBulk.fLatticeLength[2] / 4
+
+#newly add
+ #make [y1 ... yn] to  [0,y1/2,y2...y(n-1),yn/2,0] to avoid singularity at boundary of bulk data
+    dRange = cBulk.fLatticeLength[2] / 4 + data2[1][0] # additional boundary to avoid points go out
+    dAtomZ = cBulk.GetAtomList('bohr','conv')[0][3]
+    #find end ( 0 is always a good start )
+    nfBulk = NumericFunction(data2)
+    n = nfBulk.__Index__(dAtomZ*2,False)
+    #create new data
+    data2 = [[0.0,0.0]] + data2[0:n+2]
+    data2[0][0] = 0-data2[2][0]
+    data2[1][1] = data2[1][1] / 2
+    data2[-2][1] = data2[-2][1] / 2
+    data2[-1][1] = 0
+    nfBulk = NumericFunction(data2)
+#newly end
+
+    print("Atom z-distance in bulk: %f" % dRange)
+    print(listAtomSlabZ)
+    #print([ [ x[3]-dRange,x[3]+dRange ] for x in listAtomSlab ])
+    #print([x[3] for x in listAtomSlab])
+    #print(listAtomSlab[1][3]-listAtomSlab[0][3],dRange*2)
+    #print(listAtomSlab[2][3]-listAtomSlab[1][3],dRange*2)
+
+    #delete bulk atom density one by one
+    #this cause several points at ends diff twice or not diff at all
+    #must deal with data of slab one by one
+    #for nIndex in range(0,3):
+    #   print(listAtomSlab[nIndex][3] - dRange,listAtomSlab[nIndex][3] + dRange)
+    #    nfSlab.ChangeRange(listAtomSlab[nIndex][3] - dRange,listAtomSlab[nIndex][3]+dRange,lambda x: -nfBulk.Get(x-listAtomSlab[nIndex][3]+dRange))
+    nfSlab.ChangeRange(listAtomSlab[0][3] - dRange,listAtomSlab[-1][3]+dRange,lambda x: -f_DiffNearestAtom(listAtomSlabZ,nfBulk,dRange,x))
+
+    nfSlab.Write("diff.dat")
+
+def f_QE_GetDipoleCenterDiff(stStructFile,stChargeFile,dTailCut,nInterpolate,nAtomInLayer):
+    data1 = f_Data_Interpolate(f_QE_ReadAverage(stChargeFile),nInterpolate)
+    #data2 = f_QE_ReadAverage("bulk/Ru_charge_avg.out")
+    print("Creating charge density...")
+    cSlab = QESP_PW_input(stStructFile).GetCell()
+    listAtomSlab = cSlab.GetAtomList('bohr','conv')
+    listAtomSlab.sort(lambda a1,a2:cmp(a1[3],a2[3]))
+    listAtomSlabZ = [ x[3] for x in listAtomSlab]
+    #cBulk = QESP_PW_input("bulk/Ru.in").GetCell()
+    nfSlab = NumericFunction(data1)
+    nMiddle = len(listAtomSlabZ) / 2
+    for i in range(nMiddle,len(listAtomSlabZ)):
+        if ( listAtomSlabZ[i]-listAtomSlabZ[nMiddle] > 1):
+            break
+    nMiddleSide = i
+
+    dRange = (listAtomSlabZ[nMiddleSide]-listAtomSlabZ[nMiddle])/2
+    nfSlab.Write("slab.dat")
+    dAtomZ = listAtomSlabZ[len(listAtomSlabZ)/2]
+    print("Center of slab atom ( as Z std): %f" % dAtomZ ) 
+
+    #print("Bulk one atom charge before split:%f" % (nf.Integrate(nfBulk.xmin,nfBulk.xmax,lambda x: x[1]/2)))
+    print("Split at %f,%f of slab"% (listAtomSlabZ[nMiddle],listAtomSlabZ[nMiddleSide]))
+    #nfBulk.Write("bulk_a.dat")
+#Split data
+    n1 = nfSlab.__Index__(listAtomSlabZ[nMiddle]-dRange,True)
+    n2 = nfSlab.__Index__(listAtomSlabZ[nMiddleSide]-dRange,True)
+    nStd = n2
+    dChargeOneAtomSlab = nfSlab.Integrate(nfSlab.xmin,nfSlab.xmax,lambda x: x[1])/len(listAtomSlabZ) * nAtomInLayer
+
+    listCenterNF = None
+    print("Start looking for apporiate range..")
+#Find a range which has good enough charge summation  = slab / atom count
+    while ( True ) :
+#the same as diff bulk one by one
+        print(n1,n2)
+        data2 = copy.deepcopy(data1[n1:n2])
+        #data2 = f_Data_AddTail_Formula(data2,dTailCut=dTailCut)
+        #data2 = f_Data_AddTail_Formula(data2,stMethod='simple')
+        nfCenter = NumericFunction(data2)
+        nfCenter.Write("center.dat")
+                #Test data
+        print("Slab one atom charge:%f" % dChargeOneAtomSlab)
+        dChargeCenter = nfCenter.Integrate(nfCenter.xmin,nfCenter.xmax,lambda x: x[1])
+        print("Center one atom charge:%f" % dChargeCenter)
+        #return
+        print("Center Atom Range: %f, %f~%f,step %14.10f, atom pos %f" % (dRange,nfCenter.xmin,nfCenter.xmax,data2[1][0]-data2[0][0],dAtomZ))
+#adjust range
+#search for minimum error range, and larger than true charge ( for adjustment )
+        dNewErr = dChargeCenter-dChargeOneAtomSlab
+        if ( listCenterNF == None) :
+            listCenterNF= [dNewErr,n1,n2]
+        else:
+            if ( listCenterNF[0] >=  0 and dNewErr < 0  ): #error becomes large; we have come across the minimum; or we across zero
+                print("Use one with err %f " % listCenterNF[0] )
+                break
+            elif ( listCenterNF[0] < 0 and dNewErr >= 0):
+                listCenterNF= [dNewErr,n1,n2]
+                print("Use one with err %f " % dNewErr)
+                break
+            else:
+                listCenterNF= [dNewErr,n1,n2]        
+        
+        if ( dNewErr < 0):
+            n1 = n1 -1
+            n2 = n2 +1
+        else:
+            n1 = n1 + 1
+            n2 = n2 -1
+#modify data to make its charge integration exactly as slab
+#however, modify these totaly ruin the approximation "continuous" so adding tail cause seriously bad effect
+    dStep = data1[1][0] - data1[0][0]
+    data2 = data1[listCenterNF[1]-1:listCenterNF[2]+1] #additional range
+    nCount = len(data2)/2-1
+#interpolation data to make it symmetric with core
+    data3 = [] 
+    for i in range(-nCount,1):
+        dZ = dAtomZ + dStep*i
+        data3.append( [ dZ, nfSlab.Get(dZ) ])
+
+    dChargeDelta = dStep*(f_Data_Sum(data3,1)-data3[-1][1]/2 -data3[0][1]/2) - dChargeOneAtomSlab/2
+    if ( dChargeDelta < 0):
+        print("Error in find range of center! charge delta:%f" % dChargeDelta)
+#find range for integrate ; it should be in the grid of data3
+#determine grid
+    i = 0 
+    while ( dChargeDelta > 0):
+        dChargeDelta -= dStep * ( data3[i][1] + data3[i+1][1] ) /2 
+        i += 1
+    #determine z use trape method ; solve a equation of z^2
+    (x1,y1) = data3[i-1]
+    (x2,y2) = data3[i]
+    print("Solve in range %f,%f - %f,%f" % (x1,y1,x2,y2))
+    if ( y1 == y2 ):
+        x = dCharge / y1 + x2
+    else:
+        dDelta = ( (x1-x2)*(2*dChargeDelta*(y1-y2)+(x1-x2)*y2*y2))**0.5
+        if ( y1 > y2 ) :
+            x = ( x2*y1-x1*y2 - dDelta ) / ( y1-y2)
+        else:
+            x = ( x2*y1-x1*y2 +dDelta ) / ( y1-y2)
+
+    dRange = dAtomZ-x
+    print("Find start point at %f, range %f" % (x,dRange ))
+
+    i = 1
+    while ( i <= nCount ): #duplicate to ensure symmetry
+        data3.append( [dAtomZ + i * dStep,  data3[nCount-i][1]] )
+        i += 1
+
+
+    print("Center charge sum: %f" % ( (f_Data_Sum(data2,1)-data2[-1][1]) *(data2[1][0]-data2[0][0])  ))
+#   data2[0][1] -= listCenterNF[0] / dStep * 2 / 2 
+#   data2[-1][1] -= listCenterNF[0] / dStep *2 / 2
+    #data2 = f_Data_AddTail_Formula(data2,stMethod='simple',dTailCut=dTailCut)
+    #data3 = f_Data_AddTail_Formula(data3,dTailCut=dTailCut)
+    #print("Center charge sum with tail: %f" % ( (f_Data_Sum(data2,1)-data2[-1][1]) *(data2[1][0]-data2[0][0])  ))
+    #nfCenter = NumericFunction(data3)
+    nfCenter = f_Data_AddTail_Formula_Range(data3,dAtomZ-dRange,dAtomZ+dRange,dTailCut=dTailCut)
+    dRange = dAtomZ - nfCenter.xmin
+    dChargeCenter = nfCenter.Integrate(dAtomZ-dRange,dAtomZ+dRange,lambda x: x[1])
+    dDipoleCenter =  nfCenter.Integrate(dAtomZ-dRange,dAtomZ+dRange,lambda x: x[0]*x[1]) - dAtomZ * dChargeOneAtomSlab
+    print("Slab one atom charge:%f" % dChargeOneAtomSlab)
+    print("Center one atom charge:%f" % dChargeCenter)
+    print("Center one atom dipole:%f eV" % ( dDipoleCenter * Dipole_eV  ) )
+    nfCenter.Write("center.dat")
+#end modify
+
+#Calculate slab
+    print("Atom Position ",listAtomSlabZ)
+    #print([ [ x[3]-dRange,x[3]+dRange ] for x in listAtomSlab ])
+    #print([x[3] for x in listAtomSlab])
+    #print(listAtomSlab[1][3]-listAtomSlab[0][3],dRange*2)
+    #print(listAtomSlab[2][3]-listAtomSlab[1][3],dRange*2)
+
+    #delete bulk atom density one by one
+    #this cause several points at ends diff twice or not diff at all
+    #must deal with data of slab one by one
+    for nIndex in range(0,len(listAtomSlabZ)):
+       #print("Atom Range: ", listAtomSlab[nIndex][3] - dRange,listAtomSlab[nIndex][3] + dRange)
+       #print("Shift: %14.10f" % (listAtomSlab[nIndex][3]-dAtomZ ))
+       nfSlab.ChangeRange(listAtomSlab[nIndex][3] - dRange,listAtomSlab[nIndex][3]+dRange,lambda x: -nfCenter.Get(x-listAtomSlab[nIndex][3]+dAtomZ)/nAtomInLayer)
+
+   #nfSlab.ChangeRange(listAtomSlab[0][3] - dRange,listAtomSlab[-1][3]+dRange,lambda x: -f_DiffNearestAtom(listAtomSlabZ,nfCenter,listAtomSlabZ[len(listAtomSlabZ)/2],x))
+
+    nfSlab.Write("diff.dat")
+    dDipole = nfSlab.Integrate(0.0,nfSlab.xmax/2,lambda x:x[0]*x[1])*Dipole_eV
+    print("Surface-to-center diff dipole: %f eV" % dDipole)
+    return dDipole
+
+def TestResult():
+    nfDiff = NumericFunction("diff.dat")
+    print("Total Charge: %f e/Bohr2" % nfDiff.Integrate(0.0,nfDiff.xmax,lambda x:x[1]))
+    print("Total Dipole: %f eV" % (nfDiff.Integrate(0.0,nfDiff.xmax,lambda x:x[0]*x[1])*Dipole_eV))
+
+def Main(ArgList):
+    description = "pq_dipole_diff  [--cut -30] QEstructIn QEChargeAvg"
+    usage = ""
+    parser = OptionParser(usage=usage,description=description)
+    parser.add_option("-m",dest="stMethod",default="normal",help="Calculate dipole of normal: charge density + atom core charge ; diff: differential charge density with atoms; bulk: differential charge density with bulk cell ( only work when bulk contains only 1 atom layers ! ) ; atom: use atom position as split line of zero-charge line ")
+    parser.add_option("-z",dest="stZ",default="-1",help="Number of points along z axis in slab model ( default the same as used average.x output file")
+    parser.add_option("--cut",dest="stCut",default="-30",help="10**cut for extended tail of center charge density at second atom-atom middle position.default -30")
+    parser.add_option("-n",dest="stN",default="1",help="number of atoms in one layer")
+    parser.add_option("-e",dest="stInterp",default="2",help="interpolate the data to Nx grid")
+
+    (options,args) = parser.parse_args(ArgList)
+    if ( len(args) != 3 ):
+        parser.error("Please specify filenames")
+    
+    f_QE_GetDipoleCenterDiff(args[1],args[2],10**float(options.stCut),int(options.stInterp),int(options.stN))
+    TestResult()
+ 
+if __name__ == "__main__":
+    #TestDiffBulkOneByOne()
+    #TestDiffBulk()
+    #TestDiffCenter(10**-30)
+    #TestResult()
+    Main(sys.argv)

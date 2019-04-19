@@ -1,0 +1,6 @@
+ &bands
+    prefix  = ''
+    outdir = './'
+    filband = 'bands.dat'
+    lsym = .true.
+ /

@@ -1,0 +1,178 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from subprocess   import *
+from list_utils   import *
+from io_utils     import * 
+from w2k_utils    import *
+from w2k_optimize import *
+import gparams
+
+# This is a wrapper function to perform crystal lattice optimization using WIEN2k
+
+myname = sys.argv[0]
+def f_Help_Info_Latt():
+  print "\n"+myname + ": a Python script to optimize lattice constants using WIEN2k\n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:  
+   -h                       #  print help information only 
+   -debug                   #  set the debug mode, i.e. more detailed information will be written out 
+   -ec <ec_tol=1.e-6>       #  convergence tolence for the total energy             
+   -f <case_name=''>        #  case name, default : the name of the current directory
+   -fittol <fittol=0.1>     #  the tolerance to accept fitting results in the ScanFit approach 
+                              the fitting results are accepted if the the fitting error, 
+                              which is re-scaled by the difference between maximal and 
+                              minimal total energy values in the scanned region, 
+                              is smaller than fittol; the default is 0.1
+   -fix < nf i_1 ... i_nf > #  do constraint optimization with the "i_1, ..., i_nf "-th coordinates are fixed 
+                              !! not fully implemented
+ 
+   -latt <latt_type>        #  lattice parameters to be optimized, available options: 
+                              1-D: "vol", "coa", 'c' 
+                              2-D: "vol_coa", "a_c","boa_coa"
+                              3-D: "vol_boa_coa", "a_b_c"
+                              4-D: "vol_mono", "mono"
+                              6-D: "vol_tric", "tric"
+                              If not set,  a default value will be determined in terms of the lattice type  
+
+   -m <method=BracketFit>   # optimization method, available options include 
+                              Scan        -- scan each degrees of freedom 
+                              ScanFit     -- optimize the crystal structure by a scan-and-fit scheme 
+                              BracketFit  -- for each variable, the minimum is first bracketed 
+                                             by the algorithm as given in Numerical Recipe, and then approximatly 
+                                             determined by a fitting approach (default: harmonic fitting) 
+                              TaxiCab     -- optimization by the TaxiCab algorithm, essentially a steepest decent approach 
+                                             i.e. optimizing each degree of freedom in turn
+                              Powell      -- a home-made Powell algorithm with some additional safe checks 
+                              fmin        -- using SciPy.fmin function  
+                              fmin_powell -- using SciPy.fmin_powell function
+   -min <min_opt=1>         # the option for internal minimization 
+                               0 -- not internal minimization
+                               1 -- using MSR1a
+                               2 -- using min_lapw 
+
+   -restart                 # continue the previus calculation 
+   -save  <save_name=latt>       # indicate whether save intermediate wien2k calculations (default)
+   -step  <step=2.0>        # this defines the initial step size (in percentage change) for the lattice optimization
+   -useinit                 # to indicate to use the existing case_init.struct as the reference 
+                            # usually not recommended, but can be used to compare different 
+                            # optimization schemes. 
+   -w2k  <w2k_cmd>          # WIEN2k SCF command, e.g. "run_lapw -ec 0.00001" 
+   -xtol <x_tol=0.1>        # convergence tolerance for the percentage change of lattice parameters
+
+ The following options are used to customize the wien2k command, only valid if "-w2k" is not present 
+   -scf <w2k_scf>       # which wien2k command (run, runsp, runsp_c, or runfsm ) 
+   -orb                 # add "-orb" flag
+   -eece                # add "-eece" flag  
+   -so                  # add "-so"
+   -para                # add "-p" 
+
+  Examples: 
+
+   Interactive use:  
+      pw_latt    # optimize lattice constants by the default method 
+                 #("run_lapw -ec 0.00001") and optimize lattice constants only
+      pw_latt -w2k "runsp_lapw -p -orb -ec 0.000001" -out FePO4-latt    
+      pw_latt -w2k "runsp_lapw -p -orb -ec 0.000001" -save -out FePO4-latt
+      pw_latt -w2k "runsp_lapw -p -orb -ec 0.000001" -m fmin_powell -out FePO4-latt
+
+   To use pw_latt with a PBS type queue :
+     Unless using the default w2k command, in general, one should put pw_latt 
+     and its options into a file, say, opt.sh, with a command like 
+       opt.sh:
+         pw_latt -w2k "runsp_lapw -p -orb -ec 0.000001 -fc 1.0" -out FePO4-latt
+     or for materials with free internal coordinates
+         pw_latt -w2k "min_lapw -j 'run_lapw -p -ec 0.0000001 -fc 1.0'" -out opt-save -save 
+     then make it executable 
+         chmod +x opt.sh
+     then using qw2k.sh  
+        qw2k.sh -p 8 ./opt.sh 
+
+  Since these scripts are still in the experimental stauts, please check the consistency 
+  of the final results. When you have done a calculation, you should check 
+    1. standard output ( q-*.out when you are using qw2k.sh ): this contains some run-time information 
+                        from python scripts 
+    2. <out_name>*.dat -- these files (one for each set of internal coordinates) collects the total energy 
+                     vs lattice parameters (e.g. vol, c/a)
+                     be sure the last line gives the lowest total energy.  
+    3. pyw2k.log       -- this file contains all standard output from wien2k, check whether 
+                        there are any warnings  
+  """
+  sys.exit(0)
+  # end of f_Help_Info()
+
+if f_Getopt('-h',0,False): f_Help_Info_Latt()
+
+# set up some default variables 
+def_case_name  = ''
+def_debug= True
+def_ec = 1.e-5
+def_fit_tol = 0.01
+def_latt_type   = ''
+def_method = ''
+def_min_opt= 1
+def_nmax_min = 0
+def_save_name = 'latt'
+def_restart = False
+def_step = 2.0
+def_useinit = False
+def_w2k_cmd=''
+def_xtol=0.1
+def_fix = -1 
+
+# get command line options
+
+debug      = f_Getopt('-debug',   0, def_debug      )
+ec         = f_Getopt('-ec',      1, def_ec         ) 
+case_name  = f_Getopt('-f',       1, def_case_name  )
+fit_tol    = f_Getopt('-fittol',  1, def_fit_tol    ) 
+fix        = f_Getopt('-fix',     1, def_fix        )
+latt_type  = f_Getopt('-latt',    1, def_latt_type  ) 
+method     = f_Getopt('-m',       1, def_method     )
+min_opt    = f_Getopt('-min',     1, def_min_opt     ) 
+restart    = f_Getopt('-restart', 0, def_restart    ) 
+save_name  = f_Getopt('-save',    1, def_save_name  )
+step       = f_Getopt('-step',    1, def_step       )
+useinit    = f_Getopt('-useinit', 0, def_useinit    )
+w2k_cmd    = f_Getopt('-w2k',     1, def_w2k_cmd    )
+xtol       = f_Getopt('-xtol',    1, def_xtol       ) 
+
+# Get options to customize wien2k command and 
+def_w2k_scf = 'run_lapw'
+w2k_opt = ' -ec 0.00001 '
+case_name = f_Check_Name(case_name)
+if min_opt == 1:
+  w2k_opt = w2k_opt + " -min "
+
+if w2k_cmd == def_w2k_cmd: 
+  w2k_scf = f_Getopt('-scf', 1, def_w2k_scf)
+  if f_Getopt('-orb',  0,False): w2k_opt = w2k_opt + ' -orb '
+  if f_Getopt('-para', 0,False): w2k_opt = w2k_opt + ' -p '
+  if f_Getopt('-so',   0,False): w2k_opt = w2k_opt + ' -so '
+  if f_Getopt('-eece', 0,False): w2k_opt = w2k_opt + ' -eece '
+  w2k_cmd = w2k_scf + w2k_opt
+
+etot_min = 0.0 
+etot =  1.e5
+
+# do a constrained optimization 
+constraint = f_List_New(1,6) 
+if fix >= 0 : constraint[fix] = 0
+
+print "\n============== Optimizing lattice constants =============\n"
+etot = f_w2k_Optimize(\
+                   type=latt_type,      \
+                   case=case_name,      \
+                   constraint = constraint, \
+                   w2k_cmd=w2k_cmd,     \
+                   method=method,       \
+                   step = step,       \
+                   out_name = save_name, \
+                   restart=restart,   \
+                   fit_tol = fit_tol,\
+                   ftol = ec,\
+                   xtol = xtol, \
+                   save_all = True, \
+                   use_init = useinit,\
+                   debug=debug \
+                 )

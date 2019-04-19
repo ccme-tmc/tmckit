@@ -1,0 +1,493 @@
+#!/bin/tcsh -f
+# This shell script calculate optical properties  using wien2k  
+#  A converged self-consistent calculation is assumed done in the current directory
+#
+
+ 
+  set fullname=$0
+  set bindir=$fullname:h
+  set myname=$fullname:t
+  set logfile=:log
+
+  unalias echo
+  alias RUN_KGEN $bindir/w2k_kgen
+  alias AWK gawk 
+  setenv SCRATCH ./
+
+  alias sb 'shift; breaksw'       #definition used in switch
+
+  alias exec   '(x_lapw  -f $file \!:*) ; (if ($status) goto error); (echo " running " \!:*) >>$logfile;'
+  alias print 'echo  \!:* | tee -a $outfile ' 
+ 
+
+# Get options
+  echo 
+  echo '--- Get command line optoions ---'
+  echo 
+
+  set soflag=''
+  set eece 
+  set orb 
+  set para
+  set sp=0
+  set cmplx
+  set exit 
+  set sym=1
+
+  unset start
+  unset so
+  unset nkp
+  unset cmplxflag
+  unset emax  
+  unset emin
+  unset metal
+  
+  unset file
+  unset lattice 
+  unset help
+  while ($#argv)
+    switch ($1)
+    case -c:
+      set cmplxflag='-c'; sb 
+    case -f:
+      shift; set file=$1:q;  sb
+    case -eece:
+      set eece="-eece"; sb 
+    case -emax:                        # reset emax in case.in1
+      shift; set emax=$1; sb 
+    case -emin:
+      shift; set emin=$1; sb 
+    case -metal:
+      set metal; sb  
+    case -nkp: 
+      shift; set nkp=$1:q; sb          # get number of k-points for DOSa
+    case -orb:
+      set orb="-orb"; sb 
+    case -p:
+      set para='-p'; sb
+    case -ex:
+      shift; set exit=$1:q; sb
+    case -st:
+      shift; set start=$1:q; sb 
+    case -sp:
+      shift; set sp=$1; sb  
+    case -so:
+      set so; set soflag='-so'; sb
+    case -sym:
+      shift; set sym=$1; sb 
+    case -h:
+      goto help  
+    default:
+      echo "$myname -- Undefined options !" 
+      goto help 
+    endsw
+  end
+
+#-----------------------------------------------------------------------#
+#                  Initilization                                        #
+#-----------------------------------------------------------------------#
+
+  
+  # if $file not set, set default vaule of the filename to the name of the working directory
+  # make some simple tests to be sure $file is correct 
+  set wdir=`pwd`
+  if !($?file) then
+    set file=$wdir:t
+  endif
+
+  if !(-e $file.struct ) then 
+    echo " ERROR: Current directory does not have $file.struct!" 
+    goto error 
+  endif 
+
+  set outfile=$file.outoptic
+  if ( -e $outfile ) then 
+    echo "WARNING: the print file for $myname is already existing!"
+    set bakup=$outfile-`date  +%m-%d-%H`
+    echo "backup to $bakup"
+    mv -f $outfile $bakup
+  endif 
+
+  echo "Running $myname on " `date` >> $outfile
+
+  print  
+  print '--- Initilization ---'
+  print  
+  # check complex
+  # If *.in1 does not exist, indicating complex calculations
+  print " - check complex"
+  if ( ! $?cmplxflag ) then
+    if ( ( -e $file.in1 ) && (-e $file.in1c ) ) then
+      print ' WARNING: both *.in1 and *.in1c file exists'
+      if ( -z $file.in1 ) then 
+        print " remove the empty $file.in1"
+        rm -f $file.in1
+      endif 
+      if ( -z $file.in1c ) then 
+        print " remove the empty $file.in1c"
+        rm -f $file.in1c
+      endif 
+    endif
+
+    set cmplxflag
+    if ( -e $file.in1c ) then
+      print '  Complex calcuation'
+      set cmplxflag='-c'
+      set cmplx='c'
+    else 
+      set cmplxflag 
+      set cmplx
+      print "  Real calculation"
+    endif 
+  endif
+
+  print ' - set spin flag '
+  switch( $sp )
+  case 0:
+    set spflag=''; breaksw
+  case 1:
+    set spflag='up'; breaksw
+  case 2:
+    set spflag='{up,dn}'; breaksw
+  endsw
+  print '  spflag = ' $spflag
+
+#
+# To avoid possible confusions, the following files are backuped and recoved 
+# after this shell script is done 
+#
+
+  if ($?so) then
+    set in2=in2c
+  else
+    set in2=in2$cmplx
+  endif
+
+  set bakuplist = ( klist in1$cmplx kgen $in2 vector$spflag energy$spflag ) 
+
+  if  ($?start) then 
+    goto $start 
+  endif 
+
+#
+# Prepare input files if there are not present 
+#
+input:
+
+  print ' - backup files '
+  foreach ext  ( $bakuplist )
+    if ( (-e $file.$ext) && !( -e $file.${ext}_scf ) ) then
+      echo "Backup  $file.$ext -> $file.${ext}_scf "
+      cp $file.$ext $file.${ext}_scf
+    endif
+  end
+
+  # reset emax in case.in1 if necessary
+  if($?emax) then 
+    echo "  change emax in $file.in1$cmplx to "  $emax
+    mv -f $file.in1$cmplx in1.tmp
+    AWK -v em=$emax \
+        '{ if(index($0,"K-VECTOR")){ \
+             $5 = em;printf "%21s%10.1f%10.1f%19s\n",$1 FS $2 FS $3,$4,$5,$6  FS $7} \
+           else { \
+             print $0} \
+         }' in1.tmp  >&  $file.in1$cmplx
+    rm -f in1.tmp
+  endif 
+
+ # modify case.in2 file
+  echo "Modify case.in2"
+  mv -f $file.$in2 in2.tmp1
+  AWK '{if(NR == 1 ){print "FERMI          (TOT,FOR,QTL,EFG,FERMI)"} else{print $0} }' in2.tmp1 >>& in2.tmp2
+  if($?metal) then
+    AWK '{if(NR == 3 ){printf "%5s%10.5f\n","TETRA",101.0} else{print $0} }' in2.tmp2 >>& $file.$in2
+  else
+    AWK '{if(NR == 3 ){printf "%5s%10.5f\n","TETRA",0.0} else{print $0} }' in2.tmp2 >>& $file.$in2
+  endif
+  rm -f in2.tmp1 in2.tmp2
+
+ # if inop is not present, then generate a default inop according to
+ # the structure file
+  echo "prepare inop file"
+  set inop=$file.inop
+  if !($?emin) then
+    set emin=-5.0
+  endif
+
+  if !($?emax) then
+    set emax=2.0
+  endif
+
+#  echo "emin,emax=" $emax $emin
+#  echo "inop=$inop"
+#
+  set latt_type=`head -2 $file.struct |tail -1 |cut -c1-4`
+
+  print $inop
+  if ! ( -e $inop ) then
+    echo "inop is missing -- generate default one"
+    echo "99999  1      # number of k-points, first k-point" > $inop
+    echo "$emin $emax   # Emin, Emax for matrix elements   " >>$inop
+    echo "3             # number of choices                " >>$inop
+    echo "1             # Re<xx>                          " >>$inop
+    echo "2             # Re<yy>                          " >>$inop
+    echo "3             # Re<zz>                          " >>$inop
+    echo "OFF 0                                            " >>$inop
+    echo "0                                                " >>$inop
+  else  
+    if($?emin) then 
+      echo "  change emin in $file.inop to "  $emin
+      mv -f $file.inop inop.tmp
+      AWK -v em=$emin '{if(NR ==2 ){$1=em }; print $0}' inop.tmp  >&  $file.inop
+      rm -f inop.tmp
+    endif 
+
+    if($?emax) then
+      echo "  change emax in $file.inop to "  $emax
+      mv -f $file.inop inop.tmp
+      AWK -v em=$emax '{if(NR ==2 ){$2=em }; print $0}' inop.tmp  >&  $file.inop
+      rm -f inop.tmp
+    endif
+  endif
+  cat $inop
+
+  # prepare joint input
+  if !(  -e $file.injoint ) then
+    cat << EOF > $file.injoint
+     1  9999 9999                 # LOWER,UPPER and (optional) UPPER-VAL BANDINDEX
+     0.0000    0.00100   2.0000   # EMIN DE EMAX FOR ENERGYGRID IN ryd
+     eV                           # print units  eV / ryd  / cm-1
+     4                            # SWITCH
+     3                            # NUMBER OF COLUMNS
+EOF
+
+  endif
+  echo 
+  echo $file.injoint: 
+  cat $file.injoint
+  echo 
+
+ echo $file.inkram  
+ if !( -e $file.inkram ) then
+    cat << EOF > $file.inkram
+      0.1    # Gamma: broadening of interband spectrum (in units selected in joint)
+      0.0    # energy shift (scissors operator) (in units selected in joint)
+      0      # add intraband contributions? yes/no: 1/0
+     12.60   # plasma frequencies  (from joint, opt 6)
+      0.20   # Gammas for Drude terms
+EOF
+
+  endif
+  cat $file.inkram
+  echo 
+
+  if( $exit == "input" ) goto stop
+
+kgen:
+
+#
+# if the option -nkp present, generate k-mesh  
+#
+  if ($?nkp) then 
+    RUN_KGEN -s -f $file -nkp $nkp 
+    if($status) then 
+       echo "ERROR when running RUN_KGEN" 
+       goto error 
+    endif 
+  endif 
+  if( $exit == "kgen" ) goto stop
+
+lapw1:
+#
+# Calculate KS eigen-vectors by x lapw1  
+#
+
+  print
+  print '--- lapw1 ---'
+  print
+
+  switch($sp)
+  case 0:
+    exec $cmplxflag $orb $para lapw1
+    breaksw
+  case 1:
+    exec -up $cmplxflag $orb $para lapw1
+    cp -f $file.energyup $file.energydn
+    breaksw
+  case 2:
+    exec -up $cmplxflag $orb $para lapw1
+    exec -dn $cmplxflag $orb $para lapw1
+    breaksw
+  endsw
+
+  if($?so) then
+    print '--------------------'
+    print '-   lapwso         -'
+    print '--------------------'
+    if ( $sp == 0 ) then
+      exec $cmplxflag $para lapwso
+    else
+      exec $cmplxflag $para -up $orb lapwso
+    endif
+  endif
+
+  # check whether the system under study is metallic
+
+  if( $exit == "lapw1" ) goto stop
+
+lapw2:
+#
+# Calculate partial charges by x lapw2
+#
+  print
+  print '--- lapw2  ---'
+  print
+
+  set so_lapw2
+  if($?so) then
+    set so_lapw2="-so"
+    if ( $cmplx  == '' ) set so_lapw2="-c -so"  
+  endif 
+
+  switch($sp)
+  case 0:
+    exec $cmplxflag $eece $para $so_lapw2 lapw2
+    breaksw
+  case 1:
+    exec $cmplxflag $eece $para $so_lapw2 -up lapw2
+    breaksw
+  case 2:
+    exec $cmplxflag $eece $para $so_lapw2 -up lapw2
+    exec $cmplxflag $eece $para $so_lapw2 -dn lapw2
+    breaksw
+  endsw
+
+  if( $exit == "lapw2" ) goto stop
+
+optic:
+  print 
+  print ' --- optic ---'
+  print 
+
+  if !($?so) then  
+    switch($sp)
+    case 0:
+      exec $cmplxflag $para optic
+      breaksw 
+    case 1:
+      exec $cmplxflag $eece $para -up optic
+      breaksw 
+    case 2:
+      exec $cmplxflag $para -up optic
+      exec $cmplxflag $para -dn optic
+      breaksw
+    endsw
+
+  else
+    if ( $sp == 0 && $cmplx == 'c' ) then 
+      cp $file.vsp $file.vspup
+      cp $file.vsp $file.vspdn 
+      cp $file.vectorso $file.vectorsoup
+      exec x lapw2 -fermi -so -c 
+      cp $file.weight $file.weightup       
+      cp $file.weight $file.weightdn
+      exec optic -so -up
+
+    else 
+      if ( $sp == 0) then 
+        exec optic -c -so 
+      else 
+        exec optic -c -so -up
+      endif 
+    endif 
+
+  endif 
+ 
+  if( $exit == "optic" ) goto stop
+
+joint:
+  print 
+  print ' --- joint ---'
+  print
+
+  if !($?so) then   
+
+    switch($sp)
+    case 0:
+      exec joint; breaksw
+    case 1:
+      exec -up joint; cp -f $file.jointup $file.jointdn; breaksw
+    case 2: 
+      exec -up joint; exec -dn joint; breaksw
+    endsw
+
+    if ( $sp != 0 ) then 
+      addjoint-updn_lapw $file 
+    endif 
+
+  else
+ 
+    if ( $sp == 0 && $cmplx == '' ) then 
+      exec joint 
+    else
+      exec joint -up
+    endif 
+
+  endif 
+
+  if ( $exit == "joint" ) goto stop
+
+kram:
+  print 
+  print ' --- kram ---'
+  print
+
+  exec kram 
+  goto stop
+
+# recover backuped files 
+recover:
+  print 
+  print '--- recover backuped files ---'
+  print 
+  foreach ext  ( $bakuplist )
+    if ( -e $file.${ext}_scf ) then
+      print " $file.${ext}_scf --> $file.${ext}"
+      mv -f $file.${ext}_scf  $file.${ext}
+  end
+  set exit="full job done!"
+
+stop:
+  echo "Stop at " $exit 
+  exit 0
+
+error:
+  print " ERROR in run_dos"
+  exit 1
+
+help:
+  cat <<EOF 
+ Usage: $myname [options]
+ Options:
+    -c              # complex calculation
+    -eece           # for eece calculation
+    -emax <emax>    # maximal band energies 
+    -emin <emin>    # minimal band energies 
+    -orb            # orb calculation 
+    -f <file>       # filename 
+    -h              # write help and exit 
+    -metal          # set whether the system is metallic 
+    -p              # run lapw1/2 in parallel mode
+    -sp <0/1/2>     # option for spin polarized cases
+                    #  0 -- spin unpolarized 
+                    #  1 -- spin polarized but only spin up is calculated (for sp_c_lapw or afm_lapw) 
+                    #  2 -- spin polarized 
+    -so             #  with spin-orbit coupling 
+    -sym            # symmetry of the system 
+                      
+    -nkp <nkp>      # Number of kpoints needed for DOS calculations 
+    -st <input/kgen/lapw1/lapw2/optic/joint/kram/recover>  # start from the chozen block 
+    -ex <input/kgen/lapw1/lapw2/optic/joint/kram/recover>  # exit after the chozen block 
+EOF
+
+

@@ -1,0 +1,57 @@
+#!/usr/bin/env python
+
+from optparse import OptionParser
+import re
+import time
+import shutil
+import commands,copy,os,sys
+from qesp_utils import QESP_PW_input,QESP_PW_output,f_QE_DefaultRunCommand
+
+def QESP_Readforce(stFileName,stResultFileName,nIndex):
+    qOut = QESP_PW_output(stFileName)
+#    fOut = open(stFileName,"r")
+#    ar_stLine = fOut.readlines()
+#    i = 0
+#    listForce = []
+#    while (True):
+#        stLine = ar_stLine[i]
+#        if ( "Forces acting on atom" in stLine):
+#            i += 4
+#            stLine = ar_stLine[i]
+#            while( "atom" in stLine):
+#                listForce.append([float(x) for x in stLine.split()[-3:]])
+#                i += 1
+#                stLine = ar_stLine[i]
+#            break
+#        i += 1
+#    fOut.close()
+    
+    
+    fForce = open(stResultFileName,'w')
+    listAtom = qOut.arLattice[nIndex].GetAtomList("bohr","conv")
+    listForce = qOut.arForce[nIndex]
+    #print(len(listAtom))
+    for i in range(0,len(listAtom)):
+        fForce.write("%s\t%f\t%f\t%f\t%11.8f\t%11.8f\t%11.8f\n" % tuple( listAtom[i] + listForce[i] ) )
+    fForce.close()
+        
+
+def Main(ArgList):
+    description = '''Strip the force in relax or vc-relax result 
+    '''
+    usage="usage: pq_force -f outputfile -o resultfile -n iterindex"
+    parser = OptionParser(usage=usage,description=description)
+    parser.add_option("-f","--fin",dest="stFile1",help="The name of scf output file")
+    parser.add_option("-o",dest="stFile2",help="The name of result")
+    parser.add_option("-n",dest="stIndex",default="0",help="Show force of n# structure, default 0. -1 means the last.")
+    (options,args) = parser.parse_args(ArgList)
+    
+    if ( len(args) != 1 ):
+        parser.error("incorrect number of arguments.")
+    
+    
+    QESP_Readforce(options.stFile1,options.stFile2,int(options.stIndex))
+    
+
+if __name__ == "__main__":
+    Main(sys.argv)    

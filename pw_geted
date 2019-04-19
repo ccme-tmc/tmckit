@@ -1,0 +1,101 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from w2k_utils import *
+from struct_utils import *
+from io_utils import *
+from constants import * 
+
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to extract the d-states binding energy "
+  print "Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:  
+    -h               # print out this information 
+    -D               # set debug mode 
+    -emin <emin=-2.0>     # the minimal energy, w.r.t. efer, to be printed
+    -emax <emax=0.1>     # the maximal energy w.r.t. efer to be printed 
+    -f <file>        # case name 
+    -t <tag>         # the additional tag for the energy file 
+    -id <id>         # the index for the lowest d-state 
+    -nd <nd>         # the number of d-bands 
+  """
+  sys.exit(0)
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+gw_def = [0, 0.0]
+
+debug      = f_Getopt('-D',   0, True)
+case_name  = f_Getopt('-f',   1,  '' )
+tag        = f_Getopt('-t',   1, '')
+id         = f_Getopt('-id',  1,  0) 
+nd         = f_Getopt('-nd',  1,  5) 
+emin       = f_Getopt('-emin',1, -2.0) 
+emax       = f_Getopt('-emax',1,  0.1) 
+
+case_name = f_Check_Name(case_name)
+
+# first check whether the first k-point in case.klist is the Gamma point 
+
+lines = f_Read_Lines(case_name.strip()+".klist",1)
+line_k0 = lines[0].split()
+
+ik0 = [int(line_k0[1]),int(line_k0[2]),int(line_k0[3])]
+if ik0[0]!=0 or ik0[1]!=0 or ik0[2]!=0:
+  print "ERROR: the first k-vector is not the Gamma point"
+  sys.exit(1) 
+
+# get the natom 
+nat = w2k_get(case_name,'nat') 
+if debug: print "The number of atoms:",nat
+
+# get the Fermi energy
+efer = w2k_get(case_name,'efer') 
+print "Fermi energy:",efer 
+
+# get the band gap (only for reference)
+egap = w2k_get_egap(case_name)
+print "Band Gap: %6.2f eV"%(egap)
+
+# get the number of states at the Gamma point 
+file_energy= case_name.strip()+".energy"+tag
+
+lines    = f_Read_Lines(file_energy,nat*2+1)
+line_ek0 = lines[0].split()
+norb = int(line_ek0[5])
+if debug:
+  print "The number of states at the Gamma point:",norb 
+
+lines_en = f_Read_Lines(file_energy,nat*2+2,nat*2+norb+1)
+enk0 = []
+nvbm = 0 
+for i in range(len(lines_en)):
+  t = lines_en[i].split()
+  (n,en) = (int(t[0]),float(t[1]))
+  if en > efer+emin and en < efer + emax: 
+    print "%6d %12.6f"%(n,en)
+ 
+  enk0.append(en)
+  if en < efer: nvbm = n
+
+print "The index for highest occupied state:",nvbm
+
+if id == 0: sys.exit(0)
+
+ed_sum=0.0
+print "%6s %12s"%("n", "e_n")
+for i in range(nd):
+  print "%4d %16.6f"%(id+i,enk0[id-1+i])
+  ed_sum += enk0[id-1+i]
+
+ed = ed_sum /nd 
+
+print "averaged d-states energy: %16.6f Ry"%(ed)
+
+ed = (efer - ed )*Ry2eV
+
+print "d-states binding energy: %8.3f eV"%(ed)
+
+

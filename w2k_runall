@@ -1,0 +1,19 @@
+#!/bin/bash 
+
+# This is a Bash-script used to run a series of calculations of the same type, starting from 
+# given struct files 
+
+while getopts "hd:i:j:p:q:N:" Option
+do
+  case $Option in
+    d     ) wdir=$OPTARG;;
+    i     ) init=$OPTARG;;
+    j     ) job=$OPTARG;;
+    p     ) npnode=$OPTARG;;
+    q     ) queue=$OPTARG;;
+    N     ) name=$OPTARG;;
+    *     ) echo "Unimplemented option $Option chosen "; exit 1 ;;
+  esac
+done 
+
+

@@ -1,0 +1,82 @@
+#!/usr/bin/env python
+import sys, os, shutil, os.path
+from struct_utils import *
+from constants import *
+from vasp_utils_jh import *
+from io_utils import *
+from data_utils import *
+from bandstruct import *
+
+
+def f_Help_Info():
+    myname = sys.argv[0]
+    print "\n" + myname + ": a Python script to extract information from VASP output\n"
+    print "   Usage: " + os.path.basename(myname) + " [options]"\
+    + """
+  Options:
+    -h                   # display this help information
+    -v <var>             # var = nb/nk/nsp/efer/epsm/epsm_pol,band/gap/etot/lat/vol/nel
+    -o <outfile=OUTCAR>  # give the name for the vasp OUTCAR file    
+  Examples:
+  """
+    sys.exit(0)
+
+
+# default input and output format
+
+if f_Getopt('-h', 0, False): f_Help_Info()
+
+var_str = f_Getopt('-v', 1, '')
+outfile = f_Getopt('-o', 1, 'OUTCAR')
+
+var_list = var_str.split(':')
+
+
+val_list = []
+
+for i in range(len(var_list)):
+    var = var_list[i]
+
+    if os.path.isdir(outfile):
+        outfile = outfile.strip() + "/OUTCAR"
+
+    if var in [
+            'nb', 'nat', 'nk', 'nsp', 'efer', 'epsm', 'epsm_pol', 'gap',
+            'band', 'etot', 'lat', 'cput', 'mag', 'vol' ]:
+        val = vasp_getout(var, outfile, debug=True)
+
+        if   var == 'nb': print "NBANDS=    ", val
+        elif var == 'nat': print "NATOMS=    ", val
+        elif var == 'nk': print "NKPTS=     ", val
+        elif var == 'nsp': print "ISPIN=     ", val
+        elif var == 'efer': print "E_Fermi=   ", val
+        elif var == 'gap': print "E_gap=     ", val
+        elif var == 'etot': print "E_tot=     ", val
+        elif var == 'cput': print "CPUTime=   ", val
+        elif var == 'mag': print "Magnetz.=  ", val
+        elif var == 'vol': print "Vol/cell=  ", val
+        elif var == 'band': print "E_gap=     ", val
+
+        elif var == 'lat':
+            print "Lattice Vectors:"
+            for i in range(3):
+                print "%12.4f %12.4f %12.4f" % (val[i][0], val[i][1],
+                                                val[i][2])
+            vol = val[0][0] * val[1][1] * val[2][2]
+            vol += val[1][0] * val[2][1] * val[0][2]
+            vol += val[2][0] * val[0][1] * val[1][2]
+            vol -= val[2][0] * val[1][1] * val[0][2]
+            vol -= val[1][0] * val[0][1] * val[2][2]
+            vol -= val[0][0] * val[2][1] * val[1][2]
+            print "Volume= %16.6f" % (vol)
+
+        elif var == 'epsm' or var == 'epsm_pol':
+            print 'eps_M=', val
+            print 'averaged eps_M=', 3.0 / (
+                1.0 / val[0] + 1.0 / val[1] + 1.0 / val[2])
+
+    elif var == "nel":
+        val = vasp_get_nel()
+        print "Nel_total = ", val
+
+    val_list.append(val)

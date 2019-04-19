@@ -1,0 +1,421 @@
+#!/bin/csh -f
+# This shell script calculate the density of states (DOS) and prepare for plotting 
+#  A converged self-consistent calculation is assumed done in the current directory
+#
+
+set fullname=$0
+set bindir=$fullname:h
+set name=$fullname:t
+setenv SCRATCH ./
+
+set logfile=:log
+alias   exec   '(x_lapw  -f $file \!:*) ;  (echo " running " \!:*) >>$logfile;'\
+               'if ($status) goto error '
+alias print 'echo  \!:* | tee -a $outfile '
+alias sb 'shift; breaksw'       #definition used in switch
+
+# Get options
+
+set cmplx
+unset restart
+unset so
+set soflag
+set qtlflag
+set sp=0
+set spflag
+set orb
+set eece 
+set para 
+set gwopt = ( )
+set gwtag='GW'
+set kstag="KS"
+set gwkip=0
+set bandtag='band'
+set ierr_gw=0 
+
+unset gw 
+unset qtl
+unset file
+unset lattice 
+while ($#argv)
+  switch ($1)
+    case -c:
+      set cmplx='-c'; sb 
+    case -l:
+      shift; set lattice=$1:q; sb
+    case -f:
+      shift; set file=$1:q;  sb
+    case -gw:
+      shift; set gw; set gwopt = ( $gwopt -gw $1 ) ; sb
+    case -gwdir:
+      shift; set gwdir=$1; set gwopt = ( $gwopt -gwdir $1 ); sb
+    case -gwkip:
+      shift; set gwkip=$1; set gwopt = ( $gwopt -kip $gwkip ); sb
+    case -gwtag:
+      shift; set gwtag="$1"; sb
+    case -orb:
+      set orb="-orb"; sb
+    case -qtl:
+      set qtl; set qtlflag='-qtl'; sb 
+    case -r:
+      shift; set restart=$1:q; sb 
+    case -s:
+      shift; set sp=$1:q; sb  
+    case -so:
+      set so; set soflag='-so'; sb
+    case -h:
+      goto help
+    case --:
+      shift
+      break
+    default:
+      echo "$name: Internal error!" 
+      exit 1
+  endsw
+end
+
+# set default vaule of the filename to the name of the working directory
+
+  if !($?file) then
+    set wdir=`pwd`
+    set file=$wdir:t
+  endif
+  set outfile = $file.outband 
+  
+  print ' - set spin flag '
+  switch( $sp )
+  case 0:
+    set spflag=''; breaksw
+  case 1:
+    set spflag='up'; breaksw
+  case 2:
+    set spflag='{up,dn}'; breaksw
+  endsw
+  print '  spflag = ' $spflag
+
+bakup:
+  set bakuplist = ( energy$spflag qtl$spflag output1$spflag output2$spflag )
+  print ' - backup files used in SCF'
+  foreach ext  ( $bakuplist )
+    if(-e $file.$ext) then 
+      print "  backup " $file.$ext
+      mv $file.$ext $file.${ext}_bak
+    endif 
+  end
+
+  if ($?restart) then
+    print "  restart from " $restart
+    goto $restart
+  endif 
+
+init:
+  ## Prepare *.klist_band file
+  if !(-e $file.klist_band) then
+    print "---"
+    print "Prepare klist_band"
+    print "---"
+    if !($?lattice) then
+      set tmp=`head -n 2 $file.struct | tail -n 1`
+      switch ($tmp[1])
+      case F:
+        set lattice="fcc"
+        breaksw;
+      case B:
+        set lattice="bcc"
+        breaksw;
+      case H:
+        set lattice="hcp"
+        breaksw;
+      default:
+        print "Template klist does not exist, generate it yourself"
+        goto error
+        breaksw
+      endsw
+    endif
+
+    cp -f $WIENROOT/SRC_templates/$lattice.klist $file.klist_band
+    if($status) then 
+      print "Fail to find appropriate klist_band"
+      print " -- try to use xcrysden to generate one !! "
+      goto error 
+    endif 
+  endif
+
+lapw1:
+  print '---'
+  print "Calculate KS vectors (lapw1) on the k-mesh given by the klist_band" 
+  print '---'
+  switch ($sp) 
+  case 0:
+    exec $cmplx $orb lapw1 -band
+    breaksw
+  case 1: 
+    exec  -up $cmplx $orb lapw1 -band
+  case 2:
+    exec  -up $cmplx $orb lapw1 -band
+    exec  -dn $cmplx $orb lapw1 -band
+    breaksw
+  endsw 
+
+  if ($?so) then
+     print ' calculate KS vectors with spin-orbit coupling (lapwso) '
+    if ($sp == 0 ) then
+      exec $cmplx lapwso
+    else 
+      exec $cmplx -up $orb lapwso
+    endif 
+  endif
+ 
+  foreach ext ( energy$spflag vector$spflag )
+    mv -f $file.$ext $file.${ext}_$bandtag 
+  end 
+
+#
+# generate case.energy_gw and case.vector_gw
+#
+  if($?gw) then 
+    print "---"
+    print "generate orbital energy and vectors files from GW QP energies"
+    print "---"
+    foreach ext ( energy$spflag vector$spflag )
+      cp $file.${ext}_$bandtag $file.${ext}
+    end 
+
+    w2k_gwxnvf -f $file -s $sp $gwopt -tag $gwtag -t $bandtag  
+    if($status != 0 ) then
+      echo "ERROR when run_gwnv" 
+      echo "gw part is neglected"
+      unset gw
+    endif
+  endif 
+  
+# --------------------------------------------------------------#
+#                          lapw2                                #
+#---------------------------------------------------------------#
+lapw2:
+  if($?qtl) then 
+    print "---"
+    print "Calculate characters of each band by lapw2 -qtl"
+    print "---"
+
+    foreach ext ( energy$spflag vector$spflag )
+      mv -f $file.${ext}_$bandtag $file.${ext}
+    end
+
+    switch($sp)
+    case 0:
+      exec $cmplx  -qtl -band $eece $para $soflag lapw2
+      breaksw
+    case 1: 
+      exec $cmplx  -qtl -band $eece $para $soflag -up lapw2
+      breaksw
+    case 2:
+      exec $cmplx  -qtl -band $eece $para $soflag -up lapw2
+      exec $cmplx  -qtl -band $eece $para $soflag -dn lapw2
+      breaksw
+    endsw
+    foreach ext ( qtl$spflag energy$spflag vector$spflag )
+      mv -f $file.$ext $file.${ext}_$bandtag
+    end
+
+    if($?gw) then 
+      foreach ext ( energy$spflag vector$spflag )
+        mv -f $file.${ext}_${bandtag}_$gwtag $file.$ext
+      end 
+
+      switch($sp)
+      case 0:
+        exec $cmplx  -qtl -band $eece $para $soflag lapw2
+        breaksw
+      case 1:
+        exec $cmplx  -qtl -band $eece $para $soflag -up lapw2
+        breaksw
+      case 2:
+        exec $cmplx  -qtl -band $eece $para $soflag -up lapw2
+        exec $cmplx  -qtl -band $eece $para $soflag -dn lapw2
+        breaksw
+      endsw
+
+      foreach ext ( qtl$spflag energy$spflag vector$spflag )
+        mv -f $file.$ext $file.${ext}_${bandtag}_$gwtag
+      end
+    endif 
+
+  endif 
+
+#-----------------------------------------------------------------------#
+#                          spaghetti                                    #
+#-----------------------------------------------------------------------#
+#  necessary files: 
+#     case.insp
+#     case.struct
+#     case.energy[up/dn] 
+#  optional:
+#     case.qtl[up/dn]
+#
+
+spagh:
+  print '---------------------------------------------'
+  print '*   Plot bandstructure diagram (spaghetti)  *'
+  print '---------------------------------------------'
+
+  set outlist = ( spaghetti${spflag}_ene spaghetti${spflag}_ps bands${spflag}.agr )
+
+  # Prepare *.insp file, copy the template *.insp file if not existing in the current directory
+  if !(-e $file.insp) then
+    cp -f $WIENROOT/SRC_templates/case.insp $file.insp
+  endif
+
+  # A DOS calculation has been done, then extract the Fermi energy
+  # from $file.outputt which is more accurate than that one in $.scf
+  print "  Set the Fermi energy in $file.insp"
+  set flag=''
+  if ( $sp != 0 ) set flag='up'
+  if ( -e $file.outputt$flag)  then
+    print "  Extract Fermi energy from DOS output"
+    set efermi=`grep "#EF" $file.outputt$flag | tail -n 1 | awk '{print $2}'`
+  else
+    print "  Extract Fermi energy from SCF output"
+    set efermi=`grep ":FER" $file.scf | tail -n 1 | awk '{print $NF}'`
+  endif
+  print "  KS Fermi Energy=" $efermi
+
+  mv  -f $file.insp  $file.insp.old
+  awk '{ {if(NR==line) {$2=efermi}}; {print $0}}'  \
+     line=9 efermi=$efermi $file.insp.old >$file.insp
+
+  print "  Plot KS band structure" 
+  if($?qtl) then 
+    foreach ext ( qtl$spflag )
+      mv -f $file.${ext}_${bandtag} $file.$ext 
+    end
+  endif 
+
+  switch ($sp)
+  case 0:
+    exec  $cmplx $soflag $qtlflag spaghetti 
+    breaksw
+  case 1:
+    exec $cmplx  $soflag $qtlflag -up spaghetti 
+    breaksw
+  case 2:
+    exec  $cmplx $soflag $qtlflag -up spaghetti
+    exec  $cmplx $soflag $qtlflag -dn spaghetti
+    breaksw
+  endsw
+
+  if($?qtl) then 
+    foreach ext ( qtl$spflag )
+      mv -f $file.$ext $file.${ext}_${bandtag}  
+    end
+  endif 
+
+  foreach ext ( $outlist )
+    mv $file.$ext $file.${ext}_$kstag
+  end
+
+  if ( $?gw ) then 
+    print ""
+    print "Plot GW band structure" 
+    print "  Setup insp for GW band structure  "  
+    if ( -e $file.outputt${flag}_$gwtag ) then
+      print "  Extract GW Fermi energy from DOS output"
+      set efermi_gw=`grep "#EF" $file.outputt${flag}_$gwtag | tail -n 1 | awk '{print $2}'`
+      print "  GW Fermi Energy=" $efermi_gw
+      awk '{ {if(NR==line) {$2=efermi}}; {print $0}}'  \
+      line=9 efermi=$efermi_gw $file.insp >$file.insp_$gwtag
+    else 
+      print "  WARNING: GW DOS output file not present!"
+      print "    -- Using same insp for KS and GW band structure!!!"
+      cp $file.insp $file.insp_$gwtag
+    endif 
+
+    if($?qtl) then 
+      foreach ext ( qtl$spflag )
+        mv $file.${ext}_${bandtag}_$gwtag $file.$ext
+      end
+    endif 
+
+    mv -f $file.insp  $file.insp.ks
+    cp -f $file.insp_$gwtag $file.insp
+
+    foreach ext ( energy$spflag )
+      mv -f $file.${ext}_${bandtag} $file.${ext}_${bandtag}_ks
+      mv -f $file.${ext}_${bandtag}_$gwtag $file.${ext}_${bandtag}
+    end
+
+    print " run spaghetti with GW inputs" 
+    switch ($sp)
+    case 0:
+      exec  $cmplx $soflag $qtlflag spaghetti
+      breaksw
+    case 1:
+      exec $cmplx  $soflag $qtlflag -up spaghetti
+      breaksw
+    case 2:
+      exec  $cmplx $soflag $qtlflag -up spaghetti
+      exec  $cmplx $soflag $qtlflag -dn spaghetti
+      breaksw
+    endsw
+
+    foreach ext ( $outlist ) 
+      mv $file.$ext $file.${ext}_$gwtag
+    end 
+    mv -f $file.insp.ks $file.insp
+    foreach ext ( energy$spflag )
+      mv -f $file.${ext}_${bandtag}    $file.${ext}_${bandtag}_$gwtag
+      mv -f $file.${ext}_${bandtag}_ks $file.${ext}_${bandtag}
+    end
+
+    if($?qtl) then
+      foreach ext ( qtl$spflag )
+        mv $file.$ext $file.${ext}_${bandtag}_$gwtag 
+      end
+    endif
+
+  endif
+
+recover:
+  print 'Recover files used in SCF'
+  foreach ext  ( $bakuplist )
+    if ( -e $file.${ext}_bak ) then 
+      print " recover " $file.${ext}
+      mv $file.${ext}_bak $file.${ext}
+    endif 
+  end
+
+done:
+  exit 0 
+
+error:
+  echo "error in run_band"
+  exit 1
+
+help:
+cat <<EOF 
+  Usage: `basename $0` [options]"
+   Options:"
+   -h                # print out the help infomation and exit 
+   -c                # complex calculation, default: determined autamatically
+   -l <lattice>,     # Lattice name, used to copy klist_band file automatically 
+                     # if it is not available in the current directory
+                     # Default: determined by lattice type in struct file 
+                     # support only "fcc", "hcp", or "bcc", for the general case, you have 
+                     # to generate klist_band manually 
+   -f <file>,        # case name, default: current directory name  
+   -gw <gwexe>       # which gwx program to use 
+   -gwdir <gwdir>    # where are gw output? 
+   -gwtag <gw tag>   # the file tag for GW eqpH file, default:GW 
+   -gwkip <0/1>      # how to interpolate k-mesh when calculating GW band structures 
+                     #  0 - Fourier interpolation 
+                     #  1 - k.p interpolation (not implemented yet)
+   -orb              # for orb (LDA+U etc.) calculations 
+   -qtl              # include band character 
+   -s <0/1/2>        # option for spin polarization 
+                     #   0 -- run_lapw non-spinpolarized
+                     #   1 -- runsp_c_lapw or runafm_lapw, or runsp_lapw -so 
+                     #   2 -- runsp_lapw
+   -so               # band structure with spin-orbit coupling  
+   -r <restart>      # Option for restart (lapw1/lapw2/spagh) 
+EOF
+exit 1

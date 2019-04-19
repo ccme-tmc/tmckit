@@ -1,0 +1,50 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+from optparse import OptionParser
+import sys,os,copy,re,commands
+
+import common_caseutil
+from py_utils import EmptyFormatter
+from band_utils import f_Band_GetGap, f_Band_Analyse, f_Band_ReadFromFile, f_Band_GetVBMFromElectron
+
+
+def Main(ArgList):
+    description = '''Analyse band structure, get band width and band gap.
+Either Fermi level or number of electron must be specified to get band gap .'''
+    usage = "%prog --fermi bandFileName OR --electron ElectronCount"
+    parser = OptionParser(formatter=EmptyFormatter(),usage=usage,description=description)
+    #parser.add_option("--band",dest="stBandFileName",help="Specify the energy data filename; This file should be a space or tabular split text file with all states in one k-points in one row")
+    #parser.add_option("--kpt",dest="stKptFileName",help="Specify the k-point list filename; This file should be a space or tabular split text file with x,y,z coordinate of k-vector in one line. The order must be the same as band file")
+    #parser.add_option("-o",dest="stOutputBandFileName",help="Output band file name")
+    parser.add_option("--fermi",dest="Fermi",help="The fermi energy ( or VBM ) of the band structure, must be the same unit as band structure value")
+    parser.add_option("--electron",dest="Electron",help="The number of electrons in the system of the band structure.")
+            
+    (options,args) = parser.parse_args(ArgList)
+
+    if ( len(args)!= 2):
+        parser.error("incorrect number of arguments.")
+
+    listBand = f_Band_ReadFromFile(args[1])
+    
+
+    if ( options.Electron != None and options.Fermi != None):
+        print("Only one of Fermi energy and number of electrons can be specified.")
+        return
+
+    fFermi = None
+    if ( options.Electron != None):
+        fFermi = f_Band_GetVBMFromElectron(listBand,int(options.Electron))
+        print("Detect VBM:")
+        print("%f" % fFermi)
+    elif ( options.Fermi != None):
+        fFermi = float(options.Fermi)
+
+    f_Band_Analyse(listBand,fFermi)
+
+    if ( fFermi != None):
+        f_Band_GetGap(listBand,fFermi)
+   
+
+if __name__ == "__main__":
+    Main(sys.argv)    

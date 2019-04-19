@@ -1,0 +1,65 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from struct_utils  import *
+from constants     import *
+from vasp_utils_jh import * 
+from io_utils      import *
+from data_utils    import * 
+from band_utils    import * 
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to set initial magnetic momenta\n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -h                   # display this help information
+    -a <atom>            # 
+    -v <val=1.0>         # the values of magnetic momentum
+    -m <mode>            # 0 for collinear and 1 for non-collinear 
+  Examples:
+  """
+  sys.exit(0)
+
+# default input and output format 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+atom    = f_Getopt('-a',1,'')
+val     = f_Getopt('-v',1,1.0)
+mode    = f_Getopt('-m',1,0) 
+
+specs,nat_spec = vasp_get_spec("POSCAR")
+nspecs = len(specs) 
+
+print "Number of Species = ",nspecs
+nat = 0
+for i in range(nspecs):
+  nat += nat_spec[i]
+
+print "Number of Atoms = ",nat
+
+fl_incar = open("INCAR",'a') 
+fl_incar.write("MAGMOM = ")
+
+count = 0 
+for i in range(nspecs):
+  for j in range(nat_spec[i]): 
+    count += 1
+    if atom == specs[i]:
+      if mode == 0: 
+        fl_incar.write("%4.1f"%(val))
+      else:
+        fl_incar.write(" 0 0 %4.1f"%(val))
+    else:
+      if mode == 0: 
+        fl_incar.write(" 0")
+      else:
+        fl_incar.write("  0 0 0") 
+
+print "Count=",count
+      
+fl_incar.write("\n")
+fl_incar.close()
+
+ 

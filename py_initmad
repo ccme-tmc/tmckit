@@ -1,0 +1,168 @@
+#!/usr/bin/env python
+import os, sys
+from argparse import ArgumentParser
+from w2k_caseutil import Wien2K_Structure
+from common_caseutil import f_GetCaseName, GetDefaultCharge
+from chem_utils import f_Element_Z_to_Symbol, f_Element_Symbol_to_Z
+from atat_utils import atat_read_struct
+
+#calcmad.input description:
+#Structure (3D or 2D) ; method ( Ewald or direct)
+#Madelung divider(number of molecular formula * charge1 * charge2 ); Ewald alpha; Converge standard(relative) ; Output detail
+#Lattice parameter:a b c
+#Lattice parameter: alpha beta gamma
+#Repeat:Atom Coord: a b c charge,if include,if treat as core(used for classify layer)
+#Layer distance
+
+class CalcMad:
+    '''
+    Store Structure information for calculation of Mad program
+    '''
+    def __init__(self):
+        self.stStructureType = "3D1"
+        self.stMethod = "Ewald"
+        self.LatticeParameter=[0,0,0]
+        self.LatticeAngle=[0,0,0]
+        self.MadelungDivider=1
+        self.EwaldAlpha=0
+        self.ConvergeStandard=0.00001
+        self.SingleLayerIndex=-1
+        self.nSiteCount = 0
+        self.nLogLevel = 1
+        self.Sites = []
+        self.Atoms=[]
+    
+    def ReadFromFile(self,filename):
+        try:
+            fIn=open(filename)
+        except IOError,e:
+            print("Unable to open file:"+filename)
+        
+        arLine=ReadSplitLine(fIn)
+        self.LatticeParameter=[float(x) for x in arLine]
+        
+        arLine=ReadSplitLine(fIn)
+        self.LatticeAngle=[float(x) for x in arLine]
+                
+        arLine=ReadSplitLine(fIn)
+        self.MadelungDivider = int(arLine[0])
+        self.EwaldAlpha=float(arLine[1])
+        self.ConvergeStandard=float(arLine[2])
+        self.nLogLevel=int(arLine[3])
+        
+        self.nSiteCount=int(fIn.readline())
+        
+        for i in range(0,self.nSiteCount):
+            self.Sites.append([[float(x) for x in ReadSplitLine(fIn)[0:3]]])
+        
+        arLine=ReadSplitLine(fIn)
+        while len(arLine) > 0:
+            self.Atoms.append([float(x) for x in arLine[0:3]]+[int(x) for x in arLine[3:6]])
+            arLine=ReadSplitLine(fIn)
+        
+        fIn.close()
+
+    def ReadFromCell(self, latt):
+        '''
+        Read from a Lattice object
+        '''
+        self.LatticeParameter = latt.fLatticeLength
+        self.LatticeAngle = latt.fLatticeAngle        
+        
+        self.Atoms = []
+#Get Name from Z
+        for atom in latt.GetAtomList(unit="primitive",latt="prim"):
+            nZ = f_Element_Symbol_to_Z(atom[0])
+            self.Atoms.append(atom + [GetDefaultCharge(nZ),1,1])
+
+        return
+        
+    def ConvertFromWien2K(self,w2k_structure):
+        '''
+        Get structure for Madelung from a Wien2K structure
+        It must be a primitive cell
+        '''
+        
+        self.LatticeParameter=w2k_structure.LatticeParameter
+        self.LatticeAngle=w2k_structure.LatticeAngle        
+        
+        self.Atoms = []
+        for aNoneqAtom in w2k_structure.listAtom:
+#Get Name from Z
+            stName = f_Element_Z_to_Symbol(int(aNoneqAtom.fZ))
+#           stName = aNoneqAtom.stName
+            for aSingleAtom in aNoneqAtom.InnerCoord:
+                self.Atoms.append([stName] + aSingleAtom + [GetDefaultCharge(int(aNoneqAtom.fZ)),1,1])
+                
+    def WriteToFile(self,filename):
+        try:
+            fout=open(filename, mode='w') 
+        except IOError,e:
+            print("Unable to open file:"+filename)
+        
+        fout.write("%s %s\n" % ( self.stStructureType, self.stMethod))
+        fout.write("%d %f %.10f %d\n" %(self.MadelungDivider, self.EwaldAlpha,self.ConvergeStandard,self.nLogLevel))
+
+        for x in self.LatticeParameter:
+            fout.write("%.7f " % x)
+        fout.write('\n')
+        
+        for x in self.LatticeAngle:
+            fout.write("%.7f " % x)
+        fout.write('\n')
+        
+        fout.write("%d\n" % len(self.Atoms))
+        for x in self.Atoms:
+            fout.write("%-4s %.12f %.12f %.12f %d %d %d\n" % tuple(x))
+            
+        fout.write("%d\n" % len(self.Sites))
+        for x in self.Sites:
+            fout.write("%.12f %.12f %.12f\n" % (x[0],x[1],x[2]))            
+        fout.write('\n')
+        fout.close()
+  
+    
+def w2k_ConvertWien2KStructureToMadelung(stFileName = None, stFileOut = None):
+    aStructure = Wien2K_Structure()
+    if ( stFileName is None):
+        stFileName = f_GetCaseName()+".struct"
+    stCaseName = os.path.splitext(stFileName)[0]
+    aStructure.ReadFromFile(stFileName)
+    aCalcMad = CalcMad()
+    aStructure2 = aStructure.GetPrimitiveCell()
+    aStructure2.WriteToFile(stFileName.replace(".struct","-primitive.struct"))
+    aCalcMad.ConvertFromWien2K(aStructure2)
+    if (stFileOut is None):
+        stFileOut = stCaseName+".inmad"
+    aCalcMad.WriteToFile(stFileOut)
+    print(stFileName +" is converted to %s.inmad\nPlease modify it for calculation" % stCaseName)    
+
+def Main(ArgList):
+    description = "Create a input file for calcmad from other package struct. Use -f to specify filename for WIEN2k,  directly for other packages. If not specified, foldername.struct will be used. Supports w2k and atat now."
+    parser = ArgumentParser(description=description)
+    parser.add_argument("-f",dest="stFile", default=None, help="The struct file name")
+    parser.add_argument("-i",dest="Program", default="w2k", help="The package name")
+    parser.add_argument("-o",dest="stOutputFile", default=None, help="The output filename, default ${case}.inmad for w2k, case.inmad for others")
+    parser.add_argument("extra_args", type=str, nargs="*", help="Arguments passed to package-specific procedures")
+    options = parser.parse_args()
+    
+    if (options.Program == "w2k"):
+        w2k_ConvertWien2KStructureToMadelung(options.stFile, options.stOutputFile)
+    elif (options.Program == "atat"):
+        aCalcMad = CalcMad()
+        aCalcMad.ReadFromCell(atat_read_struct(options.extra_args[0]))
+        stOut = "case.inmad" if options.stOutputFile is None else options.stOutputFile
+        aCalcMad.WriteToFile(stOut)
+
+
+
+
+        
+if __name__ == "__main__":
+    #print(sys.version)
+    Main(sys.argv)
+    
+    
+
+
+

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <xs:element name="PEMiniSingleInput" type="PEMiniSingleInput"/>
+    <xs:complexType name="PEMiniSingleInput">
+        <xs:sequence>
+            <xs:element minOccurs="1" maxOccurs="1" name="stInputFile" type="xs:string" default="input"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="stOutputFile" type="xs:string" default="input_new"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="stBandRefFile" type="xs:string" default="band_ref.dat" />
+            <xs:element minOccurs="1" maxOccurs="1" name="nElectron" type="xs:int" />
+            <xs:element minOccurs="1" maxOccurs="1" name="nBandStartIndex" type="xs:int" default="0"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="nBandFitCount" type="xs:int" />
+            <xs:element minOccurs="0" maxOccurs="1" name="nBandTotal" type="xs:int" />
+            <xs:element minOccurs="1" maxOccurs="1" name="dBandHighWeight" type="xs:decimal" default="10" />
+            <xs:element minOccurs="1" maxOccurs="1" name="dGapWeight" type="xs:decimal" default="0" />
+        </xs:sequence>
+    </xs:complexType>
+</xs:schema>
+
+
+

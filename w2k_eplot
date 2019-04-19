@@ -1,0 +1,256 @@
+#!/bin/csh -f
+# interface for plotting E vs. c/a curves
+# data is generated with: optimize and "Analyze multiple SCF Files"
+#
+unalias rm
+
+set fullname=$0
+set bindir=$fullname:h
+
+echo ""
+echo ""
+echo "####################################"
+echo "#                                  #"
+echo "#            E - PLOT              #"
+echo "#                                  #"
+echo "####################################"
+echo ""
+echo ""
+
+set tmp  = tmp
+set tmp2 = tmp2
+unset type
+unset terminal
+unset help
+unset file 
+unset volfile
+
+while ($#argv)
+  switch ($1)
+  case -h:
+    set help; shift; breaksw
+  case -t:
+    shift; set type = $1; shift; breaksw
+  case -f:
+    shift ; set file = $1; shift; breaksw
+  case -vf:
+  case --volfile: 
+    shift; set volfile = $1; shift; breaksw 
+  case -p:
+    set terminal = png; shift; breaksw
+  default:
+    shift; breaksw
+  endsw
+end
+
+# if file not defined, set it as the current directory name 
+if !($?file) then 
+  set file    = `pwd`
+  set file    = $file:t
+endif 
+set outfile = $file.outeplot
+
+
+if ($?help) goto help
+
+
+# Generate *.analysis file 
+  grepline :ENE '*.scf' 1 >$file.analysis
+  grepline :VOL '*.scf' 1 >>$file.analysis
+
+if !($?type) then
+  echo 'type   "coa"  for c/a or' 
+  echo '       "vol"  for volume curve '
+  set type=$<
+endif
+
+set print = $file-$type-eplot.ps
+
+if ( $type == 'vol' ) then
+
+# generate the *.vol file 
+
+  if($?volfile) then 
+    cp $volfile $file.vol
+  else 
+    set ene=`grep :ENE $file.analysis | cut -f2 -d=`
+    set vol=`grep :VOL $file.analysis | cut -f2 -d=`
+    if (-e $file.vol) rm $file.vol
+    set i = 0
+
+    loop:
+      echo $vol[$i] $ene[$i] >>$file.vol
+      @ i ++
+      if ( $i <= $#ene ) goto loop
+  endif 
+
+#bulk <$file.vol
+
+cat << theend > eosfit.def
+55,'$file.vol',        'old',    'formatted',0         
+66,'$file.outputeos',     'unknown','formatted',0         
+9,'$file.eosfit',     'unknown','formatted',0         
+11,'$file.eosfitb',     'unknown','formatted',0         
+theend
+
+  $bindir/eosfit eosfit.def
+  echo '       "display Murnaghan or Birch-Murnaghan fit: [M/B]"  '
+  set fit=$<
+  echo "You may want to print $file.outputeos"
+  cat $file.outputeos
+  echo " Murnaghan-data are in $file.eosfit"
+  echo " Birch-Murnaghan-data are in $file.eosfitb"
+
+  switch ($fit)
+  case [B,b]:
+     set murna=`grep V0, $file.outputeos | grep -v \* |tail -1`
+     set plotfile=$file.eosfitb
+    breaksw
+  default:
+     set murna=`grep V0, $file.outputeos | grep -v \* |tail -2|head -1`
+     set plotfile=$file.eosfit
+    breaksw
+  endsw
+
+
+cat <<EOF >$tmp
+set format y "%.4f"
+set title "$file"
+#plot "$tmp2" title "$file"
+plot "$file.vol" title "Murnaghan: $murna[1]" w p 
+replot "$plotfile" title "$murna[2-]" w l 
+pause -1
+EOF
+
+  echo "press RETURN to continue"
+  gnuplot $tmp
+  echo -n "Do you want a hardcopy? (y/N)"
+  set hardcopy = ($<)
+  if ($hardcopy == y) then
+    echo -n "Specify a filename (default is $print)"
+    set out = ($<)
+    echo "Printing hardcopy"
+    if ($out == "") set out = "$print"
+    cat <<EOF >$tmp
+set terminal postscript
+set output "$out"
+#set data style linespoints
+set format y "%.4f"
+set title "$file"
+plot "$file.vol" title "Murnaghan: $murna[1]" w p,"$plotfile" title "$murna[2-]" w l 
+EOF
+    gnuplot $tmp  | tee -a $outfile
+  endif
+
+
+else
+
+# here we do coa's
+
+  grep $type $file.analysis | grep -v "Analysis generated" | grep -v ":VOL " |\
+  sed "s/.*$type//" | tr ":a-z" " " | awk '{print $1 " " $NF}'|\
+  cut -c1-6,8-  | tr "_" " " | sort -n >$tmp2
+
+# extract fitting range 
+  set xmin=`head -1 $tmp2 | cut -c1-6`
+  set xmax=`tail -1 $tmp2 | cut -c1-6`
+
+  echo ' ' >$tmp
+  if ($?terminal) then
+    cat <<EOF >$tmp
+set terminal png
+set output '$file.c_over_a.png'
+EOF
+  endif
+
+  cat <<EOF >>$tmp
+set xlabel "deviation from exp. c/a ratio (%)"
+set ylabel "Energy [Ry]"
+set format y "%.4f"
+f(x)=a1+a2*x+a3*x**2+a4*x**3+a5*x**4
+fit f(x) '$tmp2' via '.fitparam'
+plot "$tmp2" title "data" w p , f(x) title "polyfit_4order"
+set print 'fitparam.dat'
+print a1
+print a2 
+print a3
+print a4
+print a5
+set print 
+EOF
+
+if (! $?terminal) echo pause -1 >>$tmp
+
+cat <<EOF >.fitparam
+a1=1
+a2=1
+a3=1
+a4=1
+a5=1
+EOF
+
+  gnuplot $tmp   
+
+  coamin.x <<EOF | tee -a $outfile
+$xmin $xmax
+EOF
+
+  if ($?terminal) then
+    set out=$print
+    set hardcopy=y
+  else
+    echo -n "Do you want a hardcopy? (y/N)"
+    set hardcopy = ($<)
+    if ($hardcopy == y) then
+      echo -n "Specify a filename (default is $print)"
+      set out = ($<)
+      echo "Printing hardcopy"
+      if ($out == "") set out = "$print"
+    endif
+  endif
+
+  if ($hardcopy == y) then
+    cat <<EOF >$tmp
+set terminal postscript
+set output "$out"
+#set data style linespoints
+set format y "%.4f"
+f(x)=a1+a2*x+a3*x**2+a4*x**3+a5*x**4
+fit f(x) '$tmp2' via '.fitparam'
+plot "$tmp2" title "data" w p , f(x) title "polyfit_4order"
+#plot "$tmp2" title "$file"
+EOF
+    gnuplot $tmp >& /dev/null
+    if ($?terminal) echo $file.c_over_a.png generated
+    echo $out generated
+  endif
+endif
+
+exit  0
+
+error:
+  echo ">>>"
+  echo ">>> ERROR: $file.analysis not found\!"
+  echo ">>> ERROR:"
+  echo '>>> ERROR: You should "Anaylze multiple SCF Files" first'
+  echo ">>>"
+  exit(1)
+
+help:
+
+cat <<EOF
+  EPLOT is a plotting interface to plot E vs. Vol or c/a curves.
+  Once you have several scf calculations at different volumes (usually generated 
+  with "optimize.job") you can generate the required "$file.analysis" using:
+  grepline :ENE "*.scf" 1 >  $file.analysis
+  grepline :VOL "*.scf" 1 >> $file.analysis
+  Generates plots in X-window (default), png (-p) and ps format.
+
+  eplot_lapw [options] 
+  Options:
+   -h,--help               # print out this information 
+   -f, --file <casename>   # provide the case name instead of using the default (the name of current directory) 
+   -t <vol/coa>            # which type of eplot (vol/coa) 
+   -vf <vol file name >    # get volume-energy dataf from user profided file instead of extracting from *.scf* 
+   -p                      # generate *.png file 
+EOF

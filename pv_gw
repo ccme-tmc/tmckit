@@ -1,0 +1,179 @@
+#!/usr/bin/env python
+import sys,os,shutil
+import numpy
+from struct_utils   import *
+from constants      import *
+from vasp_utils_jh  import * 
+from io_utils       import *
+from data_utils     import * 
+from band_utils     import f_Band_GetGap
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to run a GW calculation in vasp\n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -D                    # set the debug mode
+    -h                   # display this help information
+    -f   <fn>            # the prefix for various output files 
+    -gw  <gw_mode=G0W0>  # what kind of GW calculation(G0W0,GW0,GW,QPGW...)
+    -in  <in_mode=0>      # set up how to set INCAR 
+                           0 ->  create INCAR on-the-fly
+                           1 ->  using existing INCAR_scf INCAR_nscf and INCAR_gw 
+                           
+    -nb  <nb=0>          # the number of bands, if set 0, use the default of NBAND = 48*natoms
+    -k   <nx ny nz>      # the number of k-points for SCF
+    -kg  <nx ny nz>      # the number of k-points for GW
+    -nom <nomega=64>     # NOMEGA
+    -sys <sys_type=0> i       # the type of system, 0/1 for insulating/metallic
+    -pxc <pre_xc>        # choose which xc functional is used for pre-SCF calculation 
+    -ec  <ecut=300>      # ecut 
+    -st  <start>         # set starting point 
+                           0 -> from the beginning (SCF)
+                           1 -> from NSCF
+                           2 -> from GW 
+    -p   <np>            # parallel running
+  Examples:
+  """
+  sys.exit(0)
+
+#--------------------------------------------------------------------#
+#                         main body of the script                    #
+#--------------------------------------------------------------------# 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+debug    = f_Getopt('-D',0,False)
+ecut     = f_Getopt('-ec',1,300.0 ) 
+fn       = f_Getopt('-f',  1, 'vasp') 
+in_mode  = f_Getopt('-in', 1, 0   ) 
+gw_mode  = f_Getopt('-gw',1,'G0W0') 
+nband    = f_Getopt('-nb',1, 0 )
+nks      = f_Getopt('-k', 3,[0,0,0])
+nksgw    = f_Getopt('-kg',3,[0,0,0])
+nproc    = f_Getopt('-p', 1, 1    ) 
+nomega   = f_Getopt('-nom', 1, 64 ) 
+pre_xc   = f_Getopt('-pxc',1,'') 
+start    = f_Getopt('-st',1,0  ) 
+sys_type = f_Getopt('-sys',1, 0   )
+
+emax_dos =  20.0
+emin_dos = -20.0 
+nedos    = 3000
+
+outfile  = "OUTCAR"
+
+out_scf  = "OUTCAR_scf"
+out_nscf = "OUTCAR_nscf"
+out_gw   = "OUTCAR_gw"
+in_scf = "INCAR_scf"
+in_nscf = "INCAR_nscf"
+in_gw = "INCAR_gw"
+
+
+# 1) run a SCF calculation using pre_xc 
+
+if start == 0: 
+
+  if in_mode == 0:
+    # INCAR for SCF 
+    ofile = open(in_scf,'w')
+    ofile.write("  System = %s\n"%(fn))
+
+    if sys_type == 0: 
+      ofile.write("  ISMEAR = 0; SIGMA = 0.05\n")
+    elif sys_type == 1:
+      ofile.write("  ISMEAR = 0; SIGMA = 0.2\n")
+
+    ofile.write("  EDIFF = 1E-8\n")
+    ofile.close()
+
+  shutil.copyfile(in_scf,"INCAR")
+
+  # set up the KPOINT file if nks is not [0,0,0]
+  if nks[0] != 0: 
+    print "k-Points used for SCF:(%3d,%3d,%3d)"%(nks[0],nks[1],nks[2])
+    vasp_write_kpoints(nks) 
+
+  ierr = vasp_run(nproc) 
+  if ierr != 0:
+    print "ERROR: fail to run the SCF calculation "
+    sys.exit(1)
+  os.rename(outfile,out_scf)
+
+# get some information to set up parameters for DOS
+efer = vasp_getout('efer',out_scf,debug=True)
+nat  = vasp_getout('nat',out_scf,debug=True)
+
+if nband == 0: nband = 48*nat 
+
+emax = emax_dos + efer 
+emin = emin_dos + efer 
+
+# 2) run a non-SCF calculation with desired number of bands 
+if start <= 1: 
+
+  if in_mode == 0:
+    # INCAR for nscf
+    ofile = open(in_nscf,'w')
+    ofile.write("  System = %s\n"%(fn))
+    ofile.write("  NBANDS = %d\n"%(nband))
+    ofile.write("  ALGO = Exact \n")
+    ofile.write("  NELM = 1 \n")
+
+    if sys_type == 0: 
+      ofile.write("  ISMEAR = 0; SIGMA = 0.05\n")
+    elif sys_type == 1:
+      ofile.write("  ISMEAR = 0; SIGMA = 0.2\n")
+
+    ofile.write("  EMIN =%8.1f; EMAX = %8.1f; NEDOS = 3000 \n"%(efer-20.0, efer+20.0))
+    ofile.write("  LOPTICS = .TRUE. \n")
+    ofile.close()
+
+  if nksgw[0] != 0: 
+    print "k-Points used for GW:(%3d,%3d,%3d)"%(nksgw[0],nksgw[1],nksgw[2])
+    vasp_write_kpoints(nksgw) 
+  
+  shutil.copyfile(in_nscf,"INCAR")
+  ierr = vasp_run(nproc)
+  if ierr != 0:
+    print "ERROR: fail to run the non SCF calculation"
+    sys.exit(1)
+
+  os.rename(outfile,out_nscf)
+  os.rename("DOSCAR","DOSCAR_nscf")
+  os.rename("EIGENVAL","EIGENVAL_nscf")
+
+# 3) GW calculation 
+if start <= 2: 
+
+  if in_mode == 0:
+    # INCAR for GW
+    ofile = open(in_gw,'w')
+    ofile.write("  System = %s\n"%(fn))
+    ofile.write("  NBANDS = %d\n"%(nband))
+    ofile.write("  NELM = 1 \n")
+
+    if sys_type == 0: 
+      ofile.write("  ISMEAR = 0; SIGMA = 0.05\n")
+    elif sys_type == 1:
+      ofile.write("  ISMEAR = 0; SIGMA = 0.2\n")
+
+    ofile.write("  EMIN =%8.1f; EMAX = %8.1f; NEDOS = 3000 \n"%(efer-20.0, efer+15.0))
+
+    ofile.write("  LOPTICS = .TRUE. \n")
+    ofile.write("  NOMEGA = %d \n"%(nomega))
+    if gw_mode == 'G0W0':
+      ofile.write("  ALGO = GW0 ; NELM = 1 \n")
+    ofile.close()
+
+  shutil.copyfile(in_gw,"INCAR")
+  ierr = vasp_run(nproc)
+  if ierr != 0:
+    print "ERROR: fail to run the GW calculation in the %s mode!!!"%(gw_mode)
+    sys.exit(1)
+  os.rename(outfile,out_gw)
+  os.rename("DOSCAR","DOSCAR_gw")
+  os.rename("EIGENVAL","EIGENVAL_" + gw_mode)
+

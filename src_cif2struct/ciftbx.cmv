@@ -1,0 +1,132 @@
+!
+! >>>>>> Common declararations 'ciftbx.cmn'
+!
+!        These declarations must be included in ciftbx user
+!        applications.
+!
+!
+!        Parameters to control sizes
+!
+!                                 Maximum number of characters in
+!                                 data names
+         integer NUMCHAR
+         PARAMETER (NUMCHAR=48)
+!                                 Maximum number of characters in
+!                                 a line
+         integer MAXBUF
+         PARAMETER (MAXBUF=200)
+!           
+!
+!                                 Align loop active flag (true/false)
+         logical   align_
+!                                 Append next CIF to prior CIF (true/false)
+         logical   append_
+!                                 Set loop tabs flag (true/false)
+         logical   tabl_
+!                                 Input tab expansion flag (true/false)
+         logical   tabx_
+!                                 Output tab expansion flag (true/false)
+         logical   ptabx_
+!                                 Text active flag (true/false)
+         logical   text_
+!                                 Loop active flag (true/false)
+         logical   loop_
+!                                 Save frame active flag (true/false)
+         logical   save_
+!                                 Save frame output flag (true/false)
+         logical   saveo_
+!                                 GlobaL block active flag (true/false)
+         logical   glob_
+!                                 Global block output flag (true/false)
+         logical   globo_
+!                                 Alias use flag (true/false)
+         logical   alias_
+!                                 Alias output mapping flag (true/false)
+         logical   aliaso_
+!                                 No blank string flag (true/false)
+         logical   nblank_
+!                                 No blank output string flag (true/false)
+         logical   nblanko_
+!                                 Found decimal point on numeric input (true/false)
+         logical   decp_
+!                                 Force decimal point on output (true/false)
+         logical   pdecp_
+!                                 Found leading zero on numeric input (true/false)
+         logical   lzero_
+!                                 Force leading zero on output (true/false)
+         logical   plzero_
+!                                 Length of current data item in strg_
+         integer   long_
+!                                 Loop block number of current item    
+         integer   list_
+!                                 Length of current filename in file_
+         integer   longf_
+!                                 Integer limit on esd's (9, 19, 29, etc.)
+         integer   esdlim_
+!                                 Integer actual esd digits in input
+         integer   esddig_
+!                                 Integer target esd digits in output
+         integer   pesddig_
+!                                 User setable input line value
+         integer   line_
+!                                 Record number of first input line to use
+         integer   recbeg_
+!                                 Record number of last input line to use
+         integer   recend_
+!                                 Record number of last input line in file
+         integer   recn_
+!                                 Record number of last last line
+         integer   precn_
+!                                 Character position of data name
+         integer   posnam_
+!                                 Character position of data value
+         integer   posval_
+!                                 Character position of decimal point
+         integer   posdec_
+!                                 Character position of end of field
+         integer   posend_
+!                                 Character position of output data name
+         integer   pposnam_
+!                                 Character position of output data value
+         integer   pposval_
+!                                 Character position of output decimal point
+         integer   pposdec_
+!                                 Character position of end of output field
+         integer   pposend_
+!                                 Version and date of CIFtbx
+         character tbxver_*32
+!                                 Name of current data block
+         character bloc_*(NUMCHAR)
+!                                 Character image of current data item
+         character strg_*(MAXBUF)
+!                                 File name of current CIF
+         character file_*(MAXBUF)
+!                                 Data item type
+         character type_*4
+!                                 Data type (May be more precise than type_)
+         character*(NUMCHAR) dictype_
+!                                 Data category
+         character*(NUMCHAR) diccat_
+!                                 Data alias root name or dictionary name
+         character*(NUMCHAR) dicname_
+!                                 Dictionary version
+         character*(NUMCHAR) dicver_
+!                                 Input CIF tag name
+         character*(NUMCHAR) tagname_
+!                                 Quoted input string flag
+         character quote_*1
+!                                 Quoted output string flag
+         character pquote_*1
+!
+         common/tbuc/ strg_,bloc_,file_,type_,dictype_,diccat_, &
+           dicname_,dicver_,tagname_,quote_,pquote_,tbxver_
+!
+         common/tbui/ list_,long_,longf_,line_,esdlim_,recn_,precn_, &
+           posnam_,posval_,posdec_,posend_, &
+           pposnam_,pposval_,pposdec_,pposend_, &
+           recbeg_,recend_,esddig_,pesddig_
+!
+         common/tbul/ loop_,text_,align_,save_,saveo_,aliaso_,alias_, &
+           tabl_,tabx_,ptabx_,nblank_,nblanko_,glob_,globo_,decp_, &
+           pdecp_,lzero_,plzero_,append_
+

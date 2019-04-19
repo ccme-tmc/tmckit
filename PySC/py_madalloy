@@ -1,0 +1,226 @@
+#!/usr/bin/env python
+import sys,os,shutil,math
+from w2k import *
+from struct_utils import *
+from io_utils import *
+from math_utils import Math_ksubset 
+from madl_utils import * 
+
+def sort_struct(s1,s2):
+  return cmp(s1[0],s2[0]) 
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to generate all possible non-equivalent alloyed structure based the Madelung energy\n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options: 
+    -c  <config=''>               # the information on the configuration of the alloy 
+                                     e.g. for initial structure of "Zn_16 O_16" to generate 
+                                    "Zn_13 Ga_3 O_13 N_3"  use -c "Zn:Ga:3;O:N:3", 
+    -ch <charges=''>                 # reset the charges used in the Madelung calculations 
+                                  #  in the form "Zn:2;O:-2" etc. 
+                        
+    -d                            # display only 
+    -f   <case_name>              # case name of the initial struct file 
+    -o   <out_prefix=case_name >  # the prefix for the output struct files 
+    -od  <out_dir=case_name>    
+    -h                            # print out this information 
+  """
+  sys.exit(0)
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+config_str  = f_Getopt('-c', 1, '' )
+charges_str = f_Getopt('-ch',1, '' )  
+display     = f_Getopt('-d', 0, False) 
+casename    = f_Getopt('-f', 1, '' )
+out_prefix  = f_Getopt('-o', 1, '')
+out_dir     = f_Getopt('-od', 1, '')
+n_select    = f_Getopt('-o', 1, 10)
+
+#
+# set the main output directory  and the output prefix 
+#
+casename = W2k_check_name(casename)
+if out_dir == '':
+  out_dir = casename
+
+if not os.path.isdir(out_dir):
+  os.mkdir(out_dir)
+
+if out_prefix == '':
+  out_prefix = casename 
+out_prefix = out_dir.strip() + '/' + out_prefix 
+
+#
+# extract the information on how to reset the charges 
+#
+charges_reset = []
+if charges_str != '':
+  tmp1 = charges_str.split(';')
+  nch = len(tmp1)
+  for i in range(nch):
+    tmp2=tmp1[i].split(':')
+    at = tmp2[0]
+    ch = float(tmp2[1])
+    charges_reset.append([at,ch])
+
+#
+# display the coordinated of all atoms 
+#
+(latt_type,latt,basis, r0rmt) = W2k_read_struct(casename, mode=0)
+charges = set_charges(basis, charges_reset)
+
+nat = len(basis) 
+
+print "Lattice constants:"
+print " (a,b,c)=(%12.6f, %12.6f, %12.6f)"%(latt[0],latt[1],latt[2])
+
+print "Atomic coordinates:"
+for ia in range(nat):
+  info="   Atom %4d %4s"%(ia+1,basis[ia][0])
+  xyz=basis[ia][1]
+  info = info+"(%6.4f, %6.4f, %6.4f) charge=%6.1f  "%(xyz[0],xyz[1],xyz[2],charges[ia])
+  print info 
+print "\n"
+
+if display: sys.exit(0) 
+
+#
+# extract the information on the alloy configuration
+#
+
+if config_str == '':
+  print "WARNING: no information on the alloy configuration is provided!"
+  sys.exit(0) 
+
+tmp1 = config_str.split(';') 
+ntyp = len(tmp1)    # the types of atoms to be alloyed 
+
+config_info = []
+for i in range(ntyp):
+  tmp2 =tmp1[i].split(':')
+  at_old = tmp2[0]           # original atom  
+  
+  # count the number of "old" species 
+  nat_old = 0            
+  for ia in range(nat):
+    if at_old == basis[ia][0]: nat_old += 1 
+
+  if nat_old == 0:
+    print "ERROR: the initial structure does not contain the atoms to be substituted!"
+    sys.exit(1)
+  
+  at_new = tmp2[1]
+  nat_new = int(tmp2[2])
+  if nat_new > nat_old:
+    print "ERROR: the number of impurity species is larger than that of the original species!"
+    sys.exit(1) 
+  config_info.append([at_old,nat_old,at_new,nat_new]) 
+
+# generate the index arrays in terms of which the substitution is made 
+
+indx_arrays=[]
+
+for i in range(ntyp):
+  n = config_info[i][1] 
+  k = config_info[i][3] 
+  indx_arrays.append(Math_ksubset(n,k))
+#  print "indx_arrays:",indx_arrays[i]
+
+#print indx_arrays[0]
+
+# create all possible substitution schema 
+subst_schema = []
+if ntyp == 1: 
+  nd = len(indx_arrays[0])
+  for i in range(nd):
+    subst_schema.append( [indx_arrays[0][i][:]] )
+
+elif ntyp == 2:
+  nd1 = len(indx_arrays[0])
+  nd2 = len(indx_arrays[1])
+  for i in range(nd1 ):
+    for j in range(nd2 ):
+      subst_schema.append( [ indx_arrays[0][i][:], indx_arrays[1][j][:] ] )
+elif ntyp == 3:
+  for i in range( len(indx_arrays[0]) ):
+    for j in range( len(indx_arrays[1]) ):
+      for k in range( len(indx_arrays[2]) ):
+        subst_schema.append( [indx_arrays[0][i][:],indx_arrays[1][j][:],indx_arrays[2][k][:] ] )
+else:
+  print "ERROR: too many types of sites to substitute!"
+  sys.exit(1)
+
+tmp_case = out_prefix+"-tmp"
+tmp_out  = tmp_case+".outmad"
+tmp_in   = tmp_case+".inmad"
+
+energy_neq = []
+struct_neq = [] 
+nsch_neq = 0  
+nsch_all = len(subst_schema)
+print "\nTotal number of possible configurations:",nsch_all 
+
+for i in range( nsch_all ):
+ 
+  # create the new struct  
+  basis_new = basis 
+  for ityp in range(ntyp):
+    scheme = subst_schema[i][ityp]
+    atom_old = config_info[ityp][0]
+    atom_new = config_info[ityp][2]
+    basis_new = Struct_substitute_atom(basis_new,atom_old,atom_new,scheme) 
+
+  charges = set_charges(basis_new, charges_reset)
+  madl_set_inmad(tmp_in,latt,basis_new,charges)    
+
+  # run calcmad 
+  failure,output = commands.getstatusoutput( "calcmad "+tmp_in + ' '+ tmp_out)
+  if failure:
+    print "ERROR: fail to run calcmad"
+    print output
+    sys.exit(1)
+
+  # obtain the electrostatic energy 
+  ifile_tmp = open(tmp_out,'r') 
+  line = ifile_tmp.readline().split()
+  en_mad = round( float(line[1]), 4) 
+  ifile_tmp.close() 
+
+  if not en_mad in energy_neq:
+    nsch_neq += 1
+    struct_new = out_prefix+'-'+str(nsch_neq)+'.struct'
+    energy_neq.append(en_mad) 
+    struct_neq.append([en_mad,basis_new,1]) 
+    print "scheme #%d/%d, E_mad = %16.4f ==> New :-) !!! nsch_neq= %d"%(i+1,nsch_all, en_mad, nsch_neq)
+
+  else:
+    i_e = energy_neq.index(en_mad) 
+    struct_neq[i_e][2] += 1 
+    print "scheme #%d/%d, E_mad = %16.4f ==> Old (-: --- "%(i+1,nsch_all,en_mad)
+
+  os.remove(tmp_in) 
+  os.remove(tmp_out)       
+
+print "Total number of nonequivalent structures",nsch_neq 
+print "Write Madelung energy to ",out_prefix+"-Madelung-Energy.dat"
+
+# sort the struct files with lowest energies 
+struct_neq.sort(sort_struct)
+# rename the struct files in terms of their energy
+
+ndig = int(math.log10(nsch_neq)+1)
+fmt = "-s%%0%dd"%(ndig)
+
+ofile = open(out_prefix+"-Madelung-Energy.dat",'w') 
+for i in range(nsch_neq):
+  emad   = struct_neq[i][0]
+  mult   = struct_neq[i][2]
+  fn = out_prefix + fmt%(i+1) 
+  W2k_write_struct(fn,latt_type,latt,struct_neq[i][1])
+  ofile.write("%6d %16.4f %d\n"%(i+1,emad,mult))
+
+ofile.close() 
+

@@ -1,0 +1,138 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import os,sys
+from abinit_utils import abi_ReadBand_Output_GW
+from argparse import ArgumentParser
+
+parser = ArgumentParser(description="Read GW correction vs. LDA energy from ABINIT stdout. LDA values are aligned to the LDA Fermi level")
+parser.add_argument('filename',type=str,help="The ABINIT stdout")
+parser.add_argument('-t',dest="type",type=str,default="all",help="The information which will be extracted. 'all' for everything in individual files")
+parser.add_argument('-o',dest="casename",type=str,default=None,help="When specified, output is directed to indivdual files for eevery files")
+parser.add_argument('-i',dest="index",type=int,default=None,help="Only the i-th band structures in the log will be outputed, i started from 1")
+group = parser.add_mutually_exclusive_group()
+group.add_argument('--align',dest="b_align",action="store_true",default=True,help="Align as Fermi level=0")
+group.add_argument('--noalign',dest="b_align",action="store_false",help="Do not align with Fermi level")
+args = parser.parse_args()
+
+#Read the file
+list_band = abi_ReadBand_Output_GW(args.filename)
+
+#Check index
+if (not (args.index is None ) and not len(list_band) >= args.index):
+    raise ValueError("Too large index %i: only %i bandstructures." % (args.index,len(list_band)))
+
+#Check if it is AC
+b_ac = False
+f = open(args.filename)
+for line in f:
+    if ("analytical continuation" in line):
+        b_ac = True
+        break
+f.close()
+
+dFermi = None
+if (not b_ac):
+#Read LDA Fermi level (that must be the first Fermi level)
+    f = open(args.filename)
+    for line in f:
+        if ("Fermi energy         [eV]" in line):
+            dFermi = float(line.split()[-1])
+            break
+    f.close()
+    if (dFermi is None):
+        print("Cannot find Fermi level.",file=sys.stderr)
+else:
+# Fermi in AC is set to 0
+    dFermi = 0.0
+
+print("Fermi energy: %f eV" % dFermi) 
+if (not args.b_align):
+    dFermi = 0
+    print("Do not align with Fermi energy")
+
+#Test parameters
+type1 = args.type.lower()
+casename = args.casename
+if ( type1 == "all"):
+    list_type = ["zde","sigx","sigc","de","z","vxc","sig","dex"]
+else:
+    list_type = [type1]
+
+#Parameters
+#First for self-consistent type and second for G0W0
+dic = {"lda":["E_lda","E0"],
+        "vxc":["<Vxclda>","<VxcLDA>"],
+        "zde":["DeltaE","E-E0"],
+        "sigc":["SigC[E(N-1)]","SigC(E0)"],
+        "sigx":["SigX","SigX"],
+        "z":["Z","Z"],
+        }
+
+
+#Read all dE v.s. eigeval-fermi 
+for type2 in list_type:
+    for i,bs in enumerate(list_band):
+        if (not (args.index is None ) and not (i+1) == args.index):
+            continue
+        try:#gwcalctyp>10 (self-consistent)#gwcalctyp>10 (self-consistent)#gwcalctyp>10 (self-consistent) 
+            eig_lda = bs.get_list_of_name(dic["lda"][0])
+            if (type2 == "de"):
+                eig_delta = [x1+x2-x3 for x1,x2,x3 in zip(
+                    bs.get_list_of_name("SigX"),
+                    bs.get_list_of_name("SigC[E(N-1)]"),
+                    bs.get_list_of_name("<Vxclda>"))]
+            elif (type2 == "sig"):
+                eig_delta = [x1+x2 for x1,x2 in zip(
+                    bs.get_list_of_name("SigX"),
+                    bs.get_list_of_name("SigC[E(N-1)]"))]
+            elif (type2 == "dex"):
+                eig_delta = [x1-x2 for x1,x2 in zip(
+                    bs.get_list_of_name("SigX"),
+                    bs.get_list_of_name("<Vxclda>"))]
+            else:
+                eig_delta = bs.get_list_of_name(dic[type2][0])
+        except IndexError as e: #gwcalctyp < 10
+            eig_lda = bs.get_list_of_name(dic["lda"][1])
+            if (type2 == "de"):
+                eig_delta = [x1+x2-x3 for x1,x2,x3 in zip(
+                    bs.get_list_of_name("SigX"),
+                    bs.get_list_of_name("SigC(E0)"),
+                    bs.get_list_of_name("<VxcLDA>"))]
+            elif (type2 == "sig"):
+                eig_delta = [x1+x2 for x1,x2 in zip(
+                    bs.get_list_of_name("SigX"),
+                    bs.get_list_of_name("SigC(E0)"))]
+            elif (type2 == "dex"):
+                eig_delta = [x1-x2 for x1,x2 in zip(
+                    bs.get_list_of_name("SigX"),
+                    bs.get_list_of_name("<VxcLDA>"))]
+            else:
+                eig_delta = bs.get_list_of_name(dic[type2][1])
+        if (casename is None):
+            for e in zip(eig_lda,eig_delta):
+                print("%6.3f %6.3f" % (e[0]-dFermi,e[1]))
+            print("")
+        else:
+            f = open("%s-%s.dat" % (casename,type2),'w')
+            for e in zip(eig_lda,eig_delta):
+                f.write("%6.3f %6.3f\n" % (e[0]-dFermi,e[1]))
+            f.write("\n")
+            f.close()
+
+
+#Read all band and k-point
+if (False):
+    print("All band")
+    for band_kpt in list:
+        band = band_kpt.listBand
+        eig_ref = band_kpt.dFermi
+        try:
+            ix_dE = band_kpt.colName.index("DeltaE")
+        except:
+            ix_dE = band_kpt.colName.index("E-E0")
+
+        list2 = reduce(lambda x,y:x+y,band)
+
+        for list3 in list2:
+            print("%6.3f " % list3[ix_dE],end="")
+        print("")

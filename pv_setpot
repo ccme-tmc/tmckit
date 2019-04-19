@@ -1,0 +1,112 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from struct_utils  import *
+from constants     import *
+from vasp_utils_jh import * 
+from io_utils      import *
+from data_utils    import * 
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to set the POTCAR file for vasp calculations \n"
+  print "  Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -h                 # display this help information
+    -xc <xc>           # set which xc=[ppbe]/ plda/ ppw91/ upw91/ ulda)
+    -a <atoms=POSCAR>  # the list of atoms, separated by ",' in the structure file
+    -vp <vp_dir>       # the location where elemental POTCAR files are located     
+                         if absent, it used the enviriable VASPPOT 
+    -f <fn='na'>       # file prefix. 
+                        fn == 'na',  POSCAR is generated, 
+                          otherwise, <fn>.POSCAR is generated.
+                          if fn =='', then fn is reset in terms of atom symbols given by "-a <atoms>" 
+  Examples:
+
+   pv_setpot              
+      ==>  PBE PAW pseudopotentials (PP) using the information in POSCAR in the current directory. 
+           The  POTCAR is created.
+
+   pv_setpot  -xc 'upw91' -a "Ga,N"    
+      ==>  PW91 ultrasoft PP for Ga and N, A file named as GaN.POSCAR is created.  
+ 
+  """
+  sys.exit(0)
+
+# default input and output format 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+xc     = f_Getopt('-xc',1,'ppbe' )
+atoms  = f_Getopt('-a', 1, 'POSCAR') 
+vp_dir = f_Getopt('-vp',1, '') 
+fn     = f_Getopt('-f', 1, '') 
+
+# set and check the path for vasppot 
+if vp_dir == '':
+  vp_dir = os.environ["VASPPOT"]
+  if not vp_dir: 
+    print "ERROR: VASPPOT is not defined!"
+    sys.exit(1)
+
+# select xc 
+xc = xc.lower()
+if xc == 'ppbe' :
+  xc_dir = "potpaw_PBE"
+elif xc == 'plda':
+  xc_dir = "potpaw"
+elif xc == 'ppw91':
+  xc_dir = "potpaw_PW91"
+elif xc == 'ulda':
+  xc_dir = 'upp_LDA'
+elif xc == 'upw91':
+  xc_dir = 'upp_PW91'
+else:
+  print "ERROR: Unsupported value for xc= "+xc 
+  sys.exit(1) 
+
+vp_dir += '/' + xc_dir
+
+print "Obtain POTCAR from "+vp_dir 
+
+if atoms == 'POSCAR':
+  fn = 'na' 
+  print "Obtain the atoms list from POSCAR"
+  ifile = open('POSCAR','r')
+  if not ifile: 
+    print "ERROR: fail to open POSCAR"
+    sys.exit(1) 
+
+  for i in range(6):
+    line = ifile.readline()
+
+  atoms_l = line.split() 
+else:
+  atoms_l = atoms.split(',')
+
+nat = len(atoms_l)
+
+print "Create POTCAR for:",atoms_l
+
+# set the file name 
+if fn == '':
+  for i in range(nat): 
+    fn += atoms_l[i]
+  fn += '.'
+elif fn == 'na':
+  fn = ''
+else:
+  fn += '.'
+
+cat_cmd =  "cat " 
+for ia in range(len(atoms_l)):
+ cat_cmd += ' ' + vp_dir+'/' +atoms_l[ia]+'/POTCAR'
+
+cat_cmd += ' ' + ' > ' + fn + 'POTCAR'
+
+
+failure,output = commands.getstatusoutput( cat_cmd )
+if failure:
+  print "ERROR when running " + cat_cmd 
+  sys.exit(1)
+

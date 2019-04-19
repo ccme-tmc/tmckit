@@ -1,0 +1,213 @@
+#!/usr/bin/env python
+
+import sys,os,shutil,glob,os.path
+from w2k_utils import *
+from struct_utils import *
+from bandstruct import * 
+
+myname_full = sys.argv[0]
+myname = os.path.basename(myname_full)
+
+def f_Help_Info():
+  print "\n  "+myname_full + ": a Python script to calculate a series of similar calculations \n"
+  print "  Usage: " + myname + " [options]"\
+  + """
+  Options:
+    -h               # print out this information
+    -D               # set the debug mode
+    -di <dir_init>   # the directory where initial struct files are stored (only valid for mode=0)  
+    -do <dir_out>    # the directory to store SCF directories 
+    -i  <init_cmd>   # the initialization command 
+    -j  <job_cmd>    # the job command 
+    -m <mode>        # mode = 0 : starting from initial struct files 
+                     # mode = 1 : it is assumed that each case has been properly initialized 
+                     # mode = 2 : post-processing type calculations for all directories
+    -o <out>         # the prefix for output 
+    -p               # run each job in parallel way  
+    -r <results>     # the results to be extracted, indicated in a strong like "vol:etot:egap:..."
+  """
+  sys.exit(0)
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+def_init  = 'init_lapw -b '
+def_job   = 'run_lapw '
+
+debug     = f_Getopt('-D'     , 0,  False )
+dir_init  = f_Getopt('-di',     1,  '.'  )
+dir_out   = f_Getopt('-do',     1,  '.'  )
+init_cmd  = f_Getopt('-i',      1,  def_init) 
+job_cmd   = f_Getopt('-j',      1,  def_job) 
+mode      = f_Getopt('-m',      1,  0     ) 
+out       = f_Getopt('-o',      1,  '') 
+para      = f_Getopt('-p',      0, False  ) 
+results   = f_Getopt('-r',      1, 'etot' ) 
+
+# get the current working directory
+wdir = os.getcwd()
+print "Current working directory:",wdir
+if out == '':
+  out = os.path.basename(wdir)  
+
+# set the file to store wien2k standard output 
+w2k_log = wdir+"/"+out+".log"
+# prepare the file to collect results 
+
+results = results.split(":") 
+print "Results to be extracted:",results
+ofile_results = open(out+"-results.dat",'w') 
+
+info = "#     "
+for i in range(len(results)):
+  info = info + "%12s"%(results[i])
+
+info = info + "\tCase Name" 
+
+ofile_results.write(info+"\n") 
+
+if para and not ("-p" in job_cmd): 
+  job_cmd = job_cmd + " -p"  
+
+print "The job to be run:",job_cmd 
+
+# setup the output directory 
+if not os.path.isdir(dir_out):
+  if debug: print "Create the output directory "+dir_out 
+  os.mkdir(dir_out) 
+
+# mode = 0 --> read struct files from dir_init, and for each struct file, named case.struct, 
+#  create a sub-directory dir_out/case, and run init_cmd and job_cmd in dir_out/case 
+
+if mode == 0:
+
+  print "the command for init_lapw:",init_cmd 
+
+  # get all struct files from dir_init 
+  struct_all = glob.glob(dir_init+"/*.struct") 
+  n_cases = len(struct_all) 
+
+  cases_all  = []   # collection of case names with the directory name 
+  for i_case in range(n_cases):
+    cases_all.append( os.path.splitext( struct_all[i_case] )[0] )
+
+else:
+  cases_orig = glob.glob(dir_out+"/*")
+
+  print "cases_orig:",cases_orig
+
+  cases_all = [] 
+
+  for i in range( len(cases_orig) ):
+    case = cases_orig[i] 
+    case_name = os.path.basename(case) 
+
+    if os.path.isdir( case ):   # if it is a directory, check whether it contains struct and scf files
+      f_struct = case + "/"+case_name + ".struct"
+      f_scf    = case + "/"+case_name + ".scf"
+
+      if not ( os.path.isfile(f_struct) or os.path.isfile(f_scf) ):
+        print "WARNING: %s is not a standard w2k directory"%(case)
+      else:
+        cases_all.append(case) 
+    else:
+      print "WARNING: %s is not a directory"%(case)
+
+  n_cases = len(cases_all)
+
+# sort all cases 
+cases_all.sort()
+ 
+print "\n Cases to be investigated:"
+for i in range(n_cases):
+  print "%6d %s"%(i+1,cases_all[i])
+print "\n"
+
+for i_case in range(n_cases):
+
+  os.chdir(wdir) 
+
+  # get the case name 
+  file_name_full = cases_all[i_case]+".struct"
+  file_name = os.path.basename(file_name_full) 
+  case_name = os.path.splitext(file_name)[0]
+
+  print "\n Run the job for the case:",case_name 
+
+  # create the job directory 
+  dir_job = dir_out + "/"+case_name 
+
+  if mode == 0: 
+    if not os.path.isdir(dir_job): 
+      os.mkdir(dir_job) 
+    shutil.copy(file_name_full,dir_job) 
+
+  if para:
+    if not os.path.isfile(".machines"):
+      print "WARNING: the parallel mode is required but no .machines file exist!"
+    else:
+      shutil.copy(".machines",dir_job)
+  
+  # change the current directory to that of dir_job 
+  os.chdir(dir_job) 
+
+# 
+# Initialization 
+#
+  if mode == 0:
+    ierr = W2k_refine_struct( case_name,out=w2k_log )
+    if ierr < 0:
+      print "ERROR: something wrong when refining the struct file: ierr=",ierr
+      print " -- skip the case ",case_name
+      continue
+
+    # run init_cmd 
+    ierr = W2k_run(init_cmd,out=w2k_log) 
+    if ierr != 0:
+      print "ERROR: something wrong when running "+init_cmd
+      print " -- skip the case ",case_name
+      continue
+
+  elif mode == 2:
+    # for mode == 2, it is assumed that a SCF calculation is already done. Therefore it is important to check 
+    # whether that is indeed the case 
+
+    if not os.path.isfile( case_name + ".scf") :
+      print "WARNING: %s has no complete SCF files"%(case_name)
+      print " -- skip the case ",case_name
+      continue
+    
+  # run job_mod 
+  ierr = W2k_run_batch(job_cmd,out=w2k_log) 
+  if ierr != 0:
+    print "ERROR: something wrong ! when running "+job_cmd
+    print " -- skip the case ",case_name
+    continue   
+
+  # clean up 
+  ierr = W2k_run("w2k_clean -p ",out=w2k_log)
+  if ierr != 0:
+    print "ERROR: something wrong when cleaning up  "
+
+  # extract results 
+  nat = w2k_get(case_name,"nat_all") 
+ 
+  info = " %-5d"%(i_case+1)
+  for i in range(len(results)):
+    val = w2k_get(case_name,results[i])
+
+    if val is None:
+      info = info+"%12s"%("NA")
+    elif isinstance(val,int):
+      info = info+"%12d"%(val)
+    elif isinstance(val,float):
+      info = info+"%12f"%(val)
+    elif isinstance(val,str):
+      info = info+"%12s"%(val)
+
+  info = info + "\t%-50s"%(case_name) + "\n"
+
+  ofile_results.write(info)
+  print info 
+
+ofile_results.close() 
+

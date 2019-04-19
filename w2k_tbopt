@@ -1,0 +1,162 @@
+#!/bin/tcsh -f
+# This shell script is used to perform a TBmBJ calcultion based on an already converged SCF using LDA or PBE 
+#
+# external programs/scripts
+#  x_lapw
+#  pw_bandanaly
+ 
+  set fullname=$0
+  set bindir=$fullname:h
+  set name=$fullname:t
+  set logfile=:log
+
+  alias AWK gawk 
+
+  set scan_val_def="1.0 1.2 1.4 1.6 1.8 2.0" 
+  set full_command="$name $*" 
+  unset file  
+  set scf_opt
+ 
+  set scan_val="$scan_val_def"
+  set mode=0 
+  set sp=0
+  set soflag 
+  set start=0
+  set nfit=2
+  unset para 
+  unset eg_target
+  alias sb 'shift; breaksw'       #definition used in switch
+  while ($#argv)
+    switch ($1)
+    case -h:
+      goto help  
+    case -eg:
+      shift; set eg_target=$1; sb 
+    case -f:
+      shift; set file=$1; sb 
+    case -nfit:
+      shift; set nfit=$1; sb 
+    case -scan:
+      shift; set scan_val="$1"; sb 
+    case -st:
+      shift; set start=$1; sb 
+
+  # options passed on to w2k_tbbj 
+    case -m:
+      shift; set mode=$1; sb 
+    case -p:
+      set scf_opt="$scf_opt -p"; set para; sb
+    case -orb:
+      set scf_opt="$scf_opt -orb"; sb
+    case -so:
+      set scf_opt="$scf_opt -so"; set soflag='-so'; sb
+    case -sp:
+      shift; set sp=$1; sb 
+    case -o:
+      shift; set scf_opt="$scf_opt $1";sb 
+    default:
+      echo "Undefined option $1 !" 
+      goto help ; sb
+    endsw
+  end
+  
+  # if $file not set, set default vaule of the filename to the name of the working directory
+  # make some simple tests to be sure $file is correct 
+  #
+
+  set wdir=`pwd`
+  if !($?file) then
+    set file=$wdir:t
+  endif
+
+  if !(-e $file/$file.struct ) then 
+    echo "ERROR: the target directory does not exist or it is not a right one!" 
+    goto error 
+  endif
+  echo "case name:" $file 
+
+  if ( $start == 1 )  goto scan 
+  if ( $start == 2)   goto sum 
+
+# perform a normal TBmBJ calculation 
+begin:
+  if !( -d $file-tb$mode ) then 
+    cp -r $file $file-tb$mode
+
+    if($?para) then 
+      cp -f .machines .processes .machine1 $file-tb$mode
+    endif 
+
+    cd $file-tb$mode
+    w2k_tbbj -sp $sp $scf_opt -m $mode 
+    cd ..
+  endif 
+
+# run the calculations
+scan:  
+  foreach c ( $scan_val )
+    set grr=`echo "(($c+0.012)/1.023)^2" | bc -l `
+    echo "grr=" $grr
+    set wdir=$file-tb$mode-c$c
+    echo "current working directory:" $wdir
+    cp -r $file $wdir
+
+    if($?para) then 
+      cp -f .machines .processes .machine1 $file-tb$mode
+    endif 
+
+    cd $wdir 
+    w2k_tbbj -sp $sp $scf_opt -m $mode -grr $grr 
+    cd ..
+  end 
+
+# summarize 
+sum:
+  # get true grr
+  cd $file-tb$mode 
+  set grr0=`cat $file-tb$mode.grr`
+  set c0=`grep ":GRR28" $file-tb$mode.scf | tail -n 1 | awk '{print $9}'`
+  set egap0=`pw_bandanaly $soflag -s $sp | grep ":BandGap" | awk '{print $3}'`
+  cd ..
+  echo "# c  Egap" | tee $file-tb$mode-scan.dat
+  foreach c ( $scan_val )
+    set wdir=$file-tb$mode-c$c
+    cd $wdir 
+    set grr=`cat $wdir.grr`
+    set egap=`pw_bandanaly $soflag -s $sp | grep ":BandGap" | awk '{print $3}'`
+    cd ..
+    echo $c $egap | tee -a $file-tb$mode-scan.dat 
+  end
+
+  if($?eg_target) then 
+    set c_opt=`py_fitroot -n $nfit -f $file-tb$mode-scan.dat -v $eg_target | tail -n 1 | awk '{print $4}'`
+    set grr_opt=`echo "(($c_opt+0.012)/1.023)^2" | bc -l `
+    echo "#grr_0= " $grr0 " c_0= " $c0 " Eg_0= ",$egap0, " c_opt= " $c_opt  " grr_opt= " $grr_opt | tee   -a  $file-tb$mode-scan.dat
+  else
+    echo "#grr_0= " $grr0 " c_0= " $c0 | tee  -a   $file-tb$mode-scan.dat
+  endif 
+
+exit 0
+
+help:
+  cat <<EOF 
+  Usage: `basename $0` [options]
+  Options:
+    -h                # write help and exit 
+    -f <file>         # case name, a directory of the same name is supposed to be present 
+                        in the current directory, which be used as the starting point for
+                        all calculations 
+    -eg <egap_target>  # the target band gap to obtain 
+    -nfit <nfit>       # the order of polynomial used to fit the band gaps as a function of c
+    -scan <scan_val>   # the values of c to be scanned, the default => ($scan_val_def)
+    -st <0/1/2/3>      # where to start (0 - beginning, 1 - scan, 2 - summary, 3 - fitting) 
+   
+    the following options will be passed on to w2k_tbbj. Check w2k_tbbj for details 
+      -m <mode>, -orb, -p, -sp <sp>, -so  
+EOF
+exit 0
+
+error:
+  echo "ERROR when running $0"
+  exit 1 
+

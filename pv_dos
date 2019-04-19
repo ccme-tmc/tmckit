@@ -1,0 +1,240 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from struct_utils  import *
+from constants     import *
+from vasp_utils_jh import * 
+from io_utils      import *
+from data_utils    import * 
+from bandstruct    import * 
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to extract PDOS from VASP DOSCAR output\n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -h                  # display this help information
+    -i <dos_infile=DOSCAR>            # the file name for DOSCAR     
+    -o <dos_outfile=DOS.dat>          #                  
+    -w <width> 
+    -emax <emax> 
+    -emin <emin>       
+    -m <mode>           #  1 extract total DOS and PDOS projected to individual atoms in terms of "lp_info"
+                        #  2 besides total DOS, the total PDOS on atoms indicated by lp_info 
+                        # -1 extract DOS from band energies read from EIGENVAL
+    -sp                 # spin-polarized analysis 
+    -vo <vasp_out=OUTCAR> # the file name for vasp main output file 
+    -l "lp_info=NA"        # indicate how to extract lm-projected DOS information
+                          "at1[:ia1[:lm1]];at2[:ia2[:lm2]] ... "
+    
+  Examples:
+  """
+  sys.exit(0) 
+
+if f_Getopt('-h',0,False): f_Help_Info() 
+
+lp_info    = f_Getopt('-l',1, 'NA' ) 
+
+mode       = f_Getopt('-m',1,  1)
+
+if lp_info == 'NA':  
+   mode == 0 
+
+if mode == -1:
+  def_dosfile = 'EIGENVAL'
+else:
+  def_dosfile = 'DOSCAR'
+
+dos_infile = f_Getopt('-i',1,def_dosfile)
+  
+dos_outfile= f_Getopt('-o',1,'') 
+vasp_out   = f_Getopt('-vo',1,'OUTCAR') 
+width      = f_Getopt('-w',1, 0.6     )
+emax       = f_Getopt('-emax',1, None )
+emin       = f_Getopt('-emin',1, None )
+spin       = f_Getopt('-sp',  0, False) 
+
+# check whether it is spin-polarized 
+nsp = vasp_getout('nsp',debug=False)
+if nsp == 1:
+  print "Spin unpolarized case!"
+else:
+  print "Spin polarized case"
+
+if dos_outfile == '':
+  if spin: 
+    dos_outfile = "DOS-sp.dat"
+  else: 
+    dos_outfile = "DOS.dat"
+
+if mode == -1:
+  ebands,kvecs,kweights,nelec = vasp_read_eigval(dos_infile)
+  dos,efer = f_DOS(ebands,kweights,width,nelec,nspin=1,emax=emax,emin=emin)
+  emin = dos[0][0]
+  emax = dos[nedos-1][0]
+#  efer = vasp_getout('efer',vasp_out)
+
+elif mode == 0  :
+  dos,efer,emax,emin = vasp_read_dos(dos_infile,debug=False) 
+else: 
+  dos,pdos,efer,emax,emin = vasp_read_dos(dos_infile,iat_pdos=0,debug=False) 
+
+print "Fermi Energy = %12.6f eV"%(efer) 
+
+nedos = len(dos)
+dos_out = []
+
+for i in range(nedos):
+  e = dos[i][0]-efer
+  if nsp == 1 : 
+    dos_out.append( [e, dos[i][1] ] )
+  else:
+    if not spin: 
+      dos_out.append( [e, dos[i][1]+dos[i][2] ] )
+    else:
+      dos_out.append( [e, dos[i][1], dos[i][2] ] )
+
+if lp_info != 'NA': 
+  # get the information on the compositions of the system 
+  specs,nat_spec = vasp_get_spec("POSCAR")
+
+  # extract the information on PDOS setup from "-l < a_1:ia_1:lm_1;a_2:ia_2:lm_2 ...>"
+  tmp = lp_info.split(';')
+
+  lp_set =[]
+  if mode == 1: 
+    for il in range(len(tmp)):
+      tmp1 = tmp[il].split(':')       
+      at = tmp1[0]
+      if len(tmp1) == 1: 
+        iat_sp = 0 
+        lm = 'a'
+      else:
+        iat_sp = int(tmp1[1])
+        if len(tmp1) == 2:
+          lm = 'a'
+        else:
+          lm = tmp1[2] 
+
+      if iat_sp == 0:
+        iat,isp = vasp_get_iat(specs,nat_spec,at,1)
+        ia_st  = iat
+        ia_end = iat + nat_spec[isp-1]
+      else: 
+        iat,isp = vasp_get_iat(specs,nat_spec,at,iat_sp)
+        ia_st = iat
+        ia_end = iat + 1
+
+      lp_set.append([at,iat_sp,lm])
+
+      for i in range(nedos):
+        if nsp == 1: 
+          d = 0.0 
+          for ia in range(ia_st,ia_end):
+            if lm == 's':
+              d += pdos[ia-1][i][1]
+            elif lm == 'p':
+              for ix in range(3): d += pdos[ia-1][i][ix+2] 
+            elif lm == 'd':
+              for ix in range(5): d += pdos[ia-1][i][ix+5]
+            elif lm == 'a':
+              for ix in range(9): d += pdos[ia-1][i][ix+1] 
+          dos_out[i].append(d) 
+        else:
+          dup = 0.0; ddn = 0.0 
+          for ia in range(ia_st,ia_end):
+            if lm == 's':
+              dup += pdos[ia-1][i][1]
+              ddn += pdos[ia-1][i][2]
+            elif lm == 'p':
+              dup += sum(pdos[ia-1][i][3:8:2])
+              ddn += sum(pdos[ia-1][i][4:9:2])
+            elif lm == 'd':
+              dup += sum(pdos[ia-1][i][9:18:2])
+              ddn += sum(pdos[ia-1][i][10:19:2])
+            elif lm == 'a':
+              dup += sum(pdos[ia-1][i][1:20:2])
+              ddn += sum(pdos[ia-1][i][2:20:2])
+
+          if not spin:
+            dos_out[i].append(dup+ddn)
+          else:
+            dos_out[i].append(dup)
+            dos_out[i].append(ddn)
+
+  elif mode == 2: 
+    for i in range(nedos): dos_out[i].append(0.0) 
+
+    for il in range( len(tmp) ): 
+      tmp1 = tmp[il].split(':') 
+      at = tmp1[0]
+      ia1_sp = int(tmp1[1])
+      ia2_sp = int(tmp1[2])
+      lp_set.append([at,ia1_sp,ia2_sp])
+
+      iat,isp = vasp_get_iat(specs,nat_spec,at,ia1_sp)
+      ia_st = iat 
+      ia_end = iat + ia2_sp - ia1_sp + 1
+      for i in range(nedos):
+        d = 0.0 
+        for ia in range(ia_st,ia_end):
+          for ix in range(nsp*9): d += pdos[ia-1][i][ix+1]
+        dos_out[i][2] += d 
+  
+  # extract the PDOS data 
+
+
+# integrate DOS to the Fermi level 
+ndos = len(dos_out[0]) - 1
+
+idos_efer = []
+for k in range(ndos): idos_efer.append(0.0)
+
+de = (emax - emin)/(nedos-1)
+for i in range(nedos-1):
+  e = dos_out[i+1][0]
+  de = dos_out[i+1][0]-dos_out[i][0]
+  if e <= 0.0:
+    for k in range(ndos):
+      idos_efer[k] += dos_out[i][k+1]*de
+
+idos_info = ''
+for k in range(ndos):
+  idos_info += "%8.3f"%(idos_efer[k])
+print "Integrated (P)DOS up to the Fermi energy", idos_info
+
+    
+print "DOS data are written to " + dos_outfile
+ofile = open(dos_outfile,'w')
+ofile.write("# NEDOS=%d E_Fermi=%12.3f\n"%(nedos,efer))
+if nsp == 1 or not spin :
+  ofile.write("# %10s %12s "%("Energy","DOS"))
+else:
+  ofile.write("# %10s %12s %12s "%("Energy","DOS(up)","DOS(dn)"))
+
+if mode == 1: 
+  for j in range(len(lp_set))  :
+    stmp = lp_set[j][0]+'-'+str(lp_set[j][1])+'-'+lp_set[j][2]
+    if nsp == 1 or not spin :
+      ofile.write("%12s "%(stmp) )
+    else:
+      ofile.write("%12s %12s "%( stmp+"(up)",stmp+"(dn)") )
+
+elif mode == 2:
+  ofile.write("%12s "%("PDOS"))
+
+ofile.write("\n")
+
+ofile.write("# %10s "%(''))
+for j in range(ndos):
+  ofile.write("%12f "%(idos_efer[j]))
+ofile.write("\n")
+
+for i in range(nedos):
+  for j in range(len(dos_out[0])):
+    ofile.write("%12.6f "%(dos_out[i][j]))
+  ofile.write("\n")
+ 
+ofile.close()
+
+

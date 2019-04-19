@@ -1,0 +1,175 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import os,sys
+from argparse import ArgumentParser
+from py_pade import pade_multi,ac_split,ac_multi
+from common_caseutil import f_Split_RangeString
+from subprocess import check_output,CalledProcessError
+from constants import Ha2eV
+
+def grep_lines(key,filename):
+    '''
+    Grep and returns all 
+    '''
+    try:
+        result = check_output(["grep","-i",key,filename])
+    except CalledProcessError:
+        result = ""
+    return result
+
+
+def float2(x):
+    '''
+    Parse a floating point number from Fortran outputs
+    maybe ********
+    '''
+    if ("*" in x):
+        return 0.0
+    else:
+        return float(x)
+
+parser = ArgumentParser(description="Read GW correction vs. LDA energy from VASP OUTCAR. This should be used inthe working directory of a completed VASP calculation. Only the first iteration is used.")
+parser.add_argument('filename',type=str,default="OUTCAR",nargs="?",help="The ABINIT stdout")
+parser.add_argument("-f",dest='eFermi',type=float,required=True,help="The DFT Fermi energy; For AC it normally is zero")
+parser.add_argument('-r',dest="energyrange",type=str,default="-20~20~0.1",help="The energy window on the real axis to extrapolate in the format of min~max~step, unit eV")
+parser.add_argument('--ac',dest="b_ac",action="store_true",default=False,help="Perform analytical continuation to the real axis in the range of -20~20eV, if possible")
+parser.add_argument('--iac',dest="i_ac",type=int,default=0,help="The method of analytical continuation. 0=pade maximum parameters(default), 1=two-poles fitting")
+
+args = parser.parse_args()
+print(args.i_ac)
+
+f = open(args.filename)
+lines = f.readlines()
+f.close()
+
+
+eFermi = float(args.eFermi)
+
+
+#Check OMGEAG
+line = grep_lines("^OMEGAGRID","INCAR")
+if ( line is not None and line is not ""):
+    n_omegagrid = int(line.split("=")[-1].strip())
+else:
+    n_omegagrid = 40
+n_unit = Ha2eV if n_omegagrid >= 70 else 1
+
+
+
+#Read frequencies
+#Too few digits, not used anymore
+#ix = 0
+#for i,line in enumerate(lines):
+#    if ("INVERSE MACROSCOPIC"  in line):
+#      ix = i + 2
+#      break
+#
+#i = ix
+#list_freq = []
+#while (lines[i][1] == 'w'):
+#    list_freq.append([float(x) for x in lines[i][4:].split()])
+#    i += 7
+
+#Read band
+ix = 0
+for i,line in enumerate(lines):
+    if ("QP shifts <psi_nk| G(iteration)W_0 |psi_nk>: iteration 1" in line):
+        ix = i + 3
+        break
+
+i = ix
+ik = 1
+data = []
+seim = {}
+b_mayac = False
+while (i+1 < len(lines) and lines[i+1] != "\n"):
+    i += 4
+    bs_k = []
+    while (i < len(lines) and lines[i].strip() != ""):
+        if (lines[i][0] != " "):#Additional info
+            t = (int(lines[i][27:38]),int(lines[i][44:]))
+            i += 1#Skip info line
+            seim_kb = []
+#Read self-energy on the imaginary axis
+#Note it is internally eV in VASP!
+            while (lines[i].strip() != ""):
+                seim_kb.append([float2(x) for x in lines[i].split()])
+                i += 1
+            seim[t] = seim_kb
+            i += 1
+        v = [float2(x) for x in lines[i].split()]
+#Report bad values  (correction < 0.01)
+        if ( abs(v[3]-v[5]) < 0.01 ):
+            print("Warning: nk=%i nb=%i" % (ik,v[0]))
+#Perform ac and append the result
+        if (len(seim) != 0):
+#           se_real,de_real = ac_split([x[0]*1j for x in seim_kb],[x[1]+1j*x[2] for x in seim_kb],[v[1]-eFermi],pade_multi)
+            se_real,de_real = ac_split([x[0] for x in seim_kb],[x[1]+1j*x[2] for x in seim_kb],[v[1]-eFermi],lambda x0,y0,x1:ac_multi(args.i_ac,4 if args.i_ac==1 else len(seim_kb),x0,y0,x1))
+            v += [se_real[0].real,1/(1-de_real[0].real)]
+        bs_k.append(v)
+        i += 1
+    data += bs_k
+    ik += 1
+
+func_lda = lambda x:x[1]-eFermi
+
+terms = [
+        ["vxc",lambda x:x[4]],
+        ["sigx",lambda x:x[5]],
+        ["dex",lambda x:x[5]-x[4]],
+        ["sig",lambda x:x[3]],
+        ]
+#Skip our ac result
+#Original AC result is put as sigc2,z2,de2,zde2
+if (len(seim) != 0):
+    print("Detect custom outputs, use own AC, original outputs are put in *2")
+    terms2 = [
+        ["sigc2",lambda x:x[3]-x[5]],
+        ["sigc",lambda x:x[8]],
+        ["z2",lambda x:x[6]],
+        ["z",lambda x:x[9]],
+        ["de2",lambda x:x[3]-x[4]],
+        ["de",lambda x:x[5]+x[8]-x[4]],
+        ["zde2",lambda x:x[2]-x[1]],
+        ["zde",lambda x:x[9]*(x[5]+x[8]-x[4])],
+        ]
+else:
+    terms2 = [
+        ["sigc",lambda x:x[3]-x[5]],
+        ["z",lambda x:x[6]],
+        ["de",lambda x:x[3]-x[4]],
+        ["zde",lambda x:x[2]-x[1]],
+        ]
+terms = terms + terms2
+
+
+
+for name,func in terms:
+    f = open("shift-%s.dat" % name,'w')
+    for line in data:
+        f.write("%s %s\n" % (func_lda(line),func(line)))
+    f.close()
+
+if (len(seim) != 0):
+    print("Analytical continuation method : %i" % args.i_ac)
+    foldername = "seim"
+    if (not os.path.exists(foldername)):
+        os.mkdir(foldername)
+#Create the grid on the real axis
+    freq_real = f_Split_RangeString(args.energyrange)
+
+    for t,seim_kb in seim.iteritems():
+        f = open(os.path.join(foldername,"%i-%i.dat" % t),'w')
+        for line in seim_kb:
+            f.write("%14.7f %14.7f %14.7f\n" % tuple(line))
+        f.close()
+
+#Do AC for test
+        if (args.b_ac):
+            se_real,de_real = ac_split([x[0] for x in seim_kb],[x[1]+1j*x[2] for x in seim_kb],freq_real,lambda x0,y0,x1:ac_multi(args.i_ac,4 if args.i_ac==1 else len(seim_kb),x0,y0,x1))
+#           se_real,z_real = ac_split([x[0]*1j for x in seim_kb],[x[1]+1j*x[2] for x in seim_kb], freq_real,pade_multi)
+            f = open(os.path.join(foldername,"real-%i-%i.dat" % t),'w')
+            for x,y in zip(freq_real,se_real):
+                f.write("%14.7f %14.7f %14.7f\n" % (x,y.real,y.imag))
+            f.close()
+

@@ -1,0 +1,107 @@
+#!/bin/tcsh -f
+#  this script is used to prepare parallel wien2k jobs
+
+# some parameters needed to set up the machines
+set myname=`basename $0`
+set queue='local'
+set mpi=1
+set mpi0=0
+set nproc=1 
+
+alias sb 'shift; breaksw'
+while ($#argv)
+  switch ($1)
+  case -h
+    goto help
+  case -mpi:
+    shift; set mpi=$1; sb 
+  case -mpi0:
+    shift; set mpi0=$1; sb 
+  case -q:
+    shift; set queue=$1; sb
+  case -np:
+    shift; set nproc=$1; sb 
+  default:
+    echo "ERROR: Undefined argument" $1
+    goto help
+  endsw
+end
+
+# get processes list
+echo 'queue type:' $queue 
+if ( "$queue" == "pbs") then  
+  set proclist=`cat $PBS_NODEFILE`
+  set nproc=$#proclist
+else if ("$queue" == "lsf") then 
+  set proclist= ( $LSB_HOSTS )
+  set nproc=$#proclist
+
+else if ("$queue" == "local") then 
+  echo "nproc=" $nproc
+  set local_host=`hostname`
+  set proclist
+  set i=0
+  while ( $i < $nproc ) 
+    set proclist=($proclist $local_host)
+    @ i ++
+  end  
+endif  
+echo "proclist:" $proclist
+echo "number of processors: $nproc"
+
+if ($nproc <  1) exit 0
+
+# prepare the .machines file
+echo '#' > .machines
+
+if($mpi0 >0 ) then 
+  echo "set MPI parallelization for lapw0"
+  echo -n 'lapw0:' >> .machines
+  set i=1
+  while ( $i <= $nproc ) 
+    echo -n "$proclist[$i] " >>.machines
+    @ i = $i + $mpi0
+  end
+  echo ' ' >>.machines
+endif 
+
+#example for k-point and mpi parallel lapw1/2
+set i=1
+while ( $i <= $nproc ) 
+  echo -n '1:' >>.machines
+  @ i1 = $i + $mpi 
+  @ i2 = $i1 - 1 
+  echo $proclist[$i-$i2] >>.machines
+  set i=$i1
+end
+ 
+echo '' >>.machines
+echo 'granularity:1' >>.machines
+echo 'extrafine:1' >>.machines
+#  echo 'lapw2_vector_split:1 ' >>.machines
+
+# --------- writing  .processes and .machine1 file (only needed in case you start with lapw2)
+echo  -n 'init:' > .processes
+echo $proclist >> .processes
+echo '1 : ' $proclist[1] " :  1 : $mpi : 1" >> .processes
+
+if (-e .machine1 ) rm -f .machine1 
+set i=1
+while ($i <=  $nproc ) 
+  echo $proclist[$i] >>.machine1
+  @ i = $i + 1
+end 
+
+exit 0
+
+help:
+   cat <<EOF  
+ Usage: $myname [options]   
+ Options:
+    -h                        # print out this information
+    -mpi  <mpi>               # the number of processes used for MPI parallelization 
+    -mpi0 <mpi0>              # used MPI for lapw0 for every <mpi0> processes  
+    -np <nproc>               # the number of processes, only needed when queue='local'
+    -q <queue>                # the type of queue system == pbs/lsf/local
+EOF
+

@@ -1,0 +1,147 @@
+#!/usr/bin/python
+import scipy
+from optparse import OptionParser
+
+import sys,subprocess,copy
+import math
+
+from optimize import f_Minimize_Powell
+from py_utils import EmptyFormatter
+from band_utils import f_Band_ReadFromFile,f_Band_GetVBMFromElectron,f_Band_Diff2RMSD,f_Band_GetGap
+from yaeh_utils import yaeh_input,yaeh_ReadBand
+from optimize import wrap_function
+
+
+#Global parameter for scipy optimize
+#stOutputFile = ""
+#yIn = None
+#listBandWeight = []
+#bandRef = None
+#dVBMRef = 0
+#nElectron = 0
+
+def f_Calc(paraNew,yIn,stOutputFile,nElectron,bandRef,dVBMRef,dGapRef,listBandWeight,dGapWeight):
+    #print("New Para")
+    #print(paraNew)
+    yIn.ReloadPara(paraNew)
+    yIn.WriteToFile(stOutputFile)
+    #status,stOutput = commands.getstatusoutput("`which bind` %s" % stOutputFile)
+    subprocess.check_call("`which bind` %s &> /dev/null" % stOutputFile,shell=True, )
+
+    #if ( status != 0):
+    #    print(stOutput)
+    #    raise ValueError,"getoutputstatus"
+
+    aKPt,bandNew,dt = yaeh_ReadBand("%s.band" % stOutputFile)
+    dDiff = f_Band_Diff2RMSD(bandNew,f_Band_GetVBMFromElectron(bandNew,nElectron),bandRef,dVBMRef,None,listBandWeight)
+    if ( math.isnan(dDiff) ): #Unphysical result; give it to a fixed value. NaN will stop minimize routine immediately
+        dDiff = 1000
+
+    #Calculate gap
+    dGap =0.0
+    if ( dGapWeight != 0.0):
+        dFermi = f_Band_GetVBMFromElectron(bandNew,nElectron)
+        dGap,dt,n1 = f_Band_GetGap(bandNew,dFermi,False)
+        if ( dGap == None): #Error in get gap, set to -10
+            dGap = -10
+        print("Current Gap: %f" % dGap)
+
+    print("Current RMSD: %f" % dDiff)
+    return dDiff+abs(dGap-dGapRef)*dGapWeight
+
+
+def f_DiffGradient(para,func):
+    '''
+    This function return a guess of gradient from definite diff
+    '''
+    grad = []
+    dC = func(para)
+    for i in range(0,len(para)):
+        para2 = copy.deepcopy(para)
+        para2[i] += para2[i]*0.01
+        grad.append( (func(para2)-dC)/0.01 )
+
+    return grad
+
+
+def CallBackFunc(para):
+    print("Current parameter: ")
+    print(para)
+
+
+def Main(ArgList):
+    description = '''This program can be used to find optimized orbital parameters for yaeh program to make it approach to standard band structure.
+    Several fitting scheme based on band RMSD can be used.
+    In general, weight of each band included in fitting is 1, and unused band is 0.001 to avoid fluctuation
+    1. Use lowest N band, and set HOMO and LUMO weight to 10 if conduction band is included.
+    2. Use N band start from lowest i-th band. Weights of HOMO and LUMO are still 1.
+    3. Beside band RMSD, included gap with weight 1.
+    '''
+    usage = "%prog -r BandStdFile -o NewParaFile -i InitialInputFile --bandcount BandCount --electron ElectronCount [--bandtotal BandTotalCount] [--gap GapWeight]"
+    
+    parser = OptionParser(formatter=EmptyFormatter(),usage=usage,description=description)
+
+    parser.add_option("-i",dest="stInput",help="Original yaeh input file")
+    parser.add_option("-o",dest="stOutputFile",help="New file contains best parameter, also the temp file name")
+    parser.add_option("-r",dest="stRef",help="The reference band file")
+    parser.add_option("--bandstart",dest="stBandStart",default="0",help="Lowest N band excluded")
+    parser.add_option("--bandcount",dest="stBand",help="The number of bands included")
+    parser.add_option("--bandtotal",dest="stBandTotal",default="0",help="The total number of bands in YAehmop calculation. Minimization procedure can use this to avoid unphysically large eigenvalue")
+    parser.add_option("--bandhi",dest="stBandHIWeight",default="0",help="The weight of HO and LU band. If range of band considered does not include band gap, this option is useless. Otherwise, default it is 10 while other bands are 1.")
+    parser.add_option("--electron",dest="stElectron",help="The number of electrons in the system")
+    parser.add_option("--gap",dest="stGapWeight",default="0",help="The weight of band gap in RMSD calculation. Note each band has weight=1")
+
+    (options,args) = parser.parse_args(ArgList)
+
+    if ( len(args) != 1):
+        parser.error("incorrect number of arguments.")
+
+
+    stOutputFile = options.stOutputFile
+    bandRef = f_Band_ReadFromFile(options.stRef)
+    yIn = yaeh_input(options.stInput)
+    nElectron = int(options.stElectron)
+    nBand = int(options.stBand)
+    nBandTotal = int(options.stBandTotal)
+    dGapWeight = float(options.stGapWeight)
+    nBandStartIndex = int(options.stBandStart)
+    dBandHIWeight = float(options.stBandHIWeight)
+
+    listBandWeight = [0.001 for x in range(0,nBandStartIndex)] + [ 1.0 for x in range(nBandStartIndex,nBandStartIndex+nBand)]
+    #Additional weight for VBM and CBM if range we considered include VBM and CBM 
+    if ( len(listBandWeight) >= nElectron /2 + 1):
+        print("Unoccupiede states included in calculation, use different weight for HOMO and LUMO")
+        if ( dBandHIWeight == 0):
+            dBandHIWeight = 10
+        listBandWeight[nElectron/2-1] = dBandHIWeight
+        listBandWeight[nElectron/2] = dBandHIWeight
+
+    if ( nBandTotal == 0): #Not specified
+        #Additional very small weight to make result not fluctuate too much
+        listBandWeight.append(0.001)
+    else:
+        #Add all additional band to make result stabilize
+        listBandWeight = listBandWeight + [0.001 for x in range(0,nBandTotal-len(listBandWeight))]
+
+
+    dVBMRef = f_Band_GetVBMFromElectron(bandRef,nElectron)
+    dGapRef,dt,nt = f_Band_GetGap(bandRef,dVBMRef,False)
+
+    print("Initial para:")
+    print(yIn.GetPara())
+    print("Band weight:")
+    print(listBandWeight)
+
+    #scipy.optimize.minimize(MinFunc,yIn.GetPara(),method="BFGS",options={maxiter:100,disp:False},tol=1.0e-1)
+    #f_Minimize_Powell(f_Calc,args=(yIn,stOutputFile,nElectron,bandRef,dVBMRef,listBandWeight),x0=yIn.GetPara(),ftol=1.e-2,itmax=200,debug=False,restart=False) 
+
+    MinFunc = wrap_function(f_Calc,(yIn,stOutputFile,nElectron,bandRef,dVBMRef,dGapRef,listBandWeight,dGapWeight))
+
+    #scipy.optimize.fmin_powell(MinFunc,x0=yIn.GetPara(),xtol=0.001,ftol=0.001,maxiter=1000)
+    #scipy.optimize.fmin_cg(MinFunc,x0=yIn.GetPara(),fprime=None,epsilon=0.001,maxiter=1000,callback=CallBackFunc)
+    res = scipy.optimize.fmin_bfgs(MinFunc,x0=yIn.GetPara(),fprime=None,epsilon=0.001,gtol=1e-03,maxiter=1000,callback=CallBackFunc)
+
+    f_Calc(res,yIn,stOutputFile,nElectron,bandRef,dVBMRef,dGapRef,listBandWeight,dGapWeight)
+
+if __name__ == "__main__":
+    Main(sys.argv);

@@ -1,0 +1,319 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+from optparse import OptionParser
+import sys,os,copy,re,commands,stat
+
+from py_utils import EmptyFormatter
+from qesp_utils import QESP_PW_input,QESP_PW_output,QESP_projwfc_input,f_QE_DefaultRunCommand,f_QE_ReadBand,f_QE_ReadFermi,f_QE_ExtendBand
+from common_caseutil import f_env_RunMpirunCommand,f_ReadFileFloatValue,f_WriteFileFloatValue
+from band_utils import f_Band_EstimateNumberOfConductionBand
+
+def QESP_CreateFermiInput(stFileNameIn,stFileNameOut=None,listkpCount=None,fExtendBand=1.2,nProcess=-1):
+    '''
+    Create DOS calculation input and PDOS calculation input from scf calculation
+    '''
+    stNewName = os.path.splitext(stFileNameIn)[0]+"_nscf.in"
+    
+    qIn = QESP_PW_input(stFileNameIn)
+
+    qIn.calculation = "nscf"
+    qIn.AddValue("system","occupations","tetrahedra")
+    if ( hasattr(qIn,'degauss')):
+        qIn.degauss = 0.0
+
+    #Recreate bands count
+    if ( fExtendBand != None ):
+        f_QE_ExtendBand(qIn,stFileNameOut,fExtendBand)
+    else:
+        qOut = QESP_PW_output(stFileNameOut)
+        nExtra =f_Band_EstimateNumberOfConductionBand(qIn.GetCell()) 
+        qIn.AddValue("system","nbnd",qOut.nElectron/2+nExtra)
+        print("Number of bands in calculation is extended to %d occupied + %d unoccupied" % (qOut.nElectron/2,nExtra) )
+        
+        
+    if ( listkpCount != None):
+        qIn.stKPtMode = 'automatic'
+        qIn.listKPtGrid = listkpCount + [0,0,0]
+    
+    qIn.WriteToFile(stNewName)
+
+    if ( nProcess != -1):
+        print("Calculating Fermi energy...")
+        f_env_RunMpirunCommand(f_QE_DefaultRunCommand(stNewName[:-3]),nProcess)
+        eig_fermi = QESP_PW_output(stNewName[:-3]+".out").fermi
+        print("\33[32mFermi energy is %f\33[m" % eig_fermi)
+        f_WriteFileFloatValue(eig_fermi,"pq_dos.fermi")
+    else:
+        print("%s is created. Please use pw.x to calculate the Fermi level." % stNewName)
+    
+def QESP_CreatePDOSInput(stFileNameIn,stFileNameOut,nProcess=-1):
+    '''
+    Create a projected dos calculation input file
+    :param stFileNameIn: SCF or DOS input file ( should give same results ) 
+    :param stFileNameOut: DOS output file to read energy range. If not used, use stFileNameIn ( exclude extension ) + _dos.out
+    '''
+# JH: to be consistent, the case name should use "prefix" defined in the input file
+#  since in the main input, file1,file2 are required, then here it does not make sense to allow default stFileNameOut
+
+#    stCase = os.path.splitext(stFileNameIn)[0]
+#    stNewName = stCase+"_pdos.in"
+
+    qIn = QESP_PW_input(stFileNameIn)
+    stCase = qIn.prefix 
+    
+    #Read bands in SCF
+    list_band,list_kp = f_QE_ReadBand(stFileNameOut)
+    
+    #read fermi energy
+#use pq_dos.fermi first 
+    fFermi = f_QE_ReadFermi()
+    if ( fFermi == None):
+        fFermi = f_QE_ReadFermi(stFileNameOut) 
+#write pq_dos.fermi if possible
+        if ( fFermi != None):
+            f_WriteFileFloatValue(fFermi,"pq_dos.fermi")
+    
+    pIn = QESP_projwfc_input()
+    pIn.outdir = qIn.outdir
+    pIn.prefix = qIn.prefix
+    pIn.Emin = float(int(min([min(x) for x in list_band])-1))
+    pIn.Emax = float(int(max([max(x) for x in list_band])+1))
+
+    stNewName = os.path.splitext(stFileNameIn)[0]+"_pdos.in"
+    
+    pIn.WriteToFile(stNewName)
+    if ( nProcess != -1):
+        print("Calculating PDOS...")
+        f_env_RunMpirunCommand(f_QE_DefaultRunCommand(stNewName[:-3],"projwfc.x"),nProcess)
+        if ( fFermi != None):
+            QESP_PlotPDOS(qIn.prefix,fFermi)
+        else:
+            QESP_PlotPDOS(qIn.prefix)
+    else:
+        print("%s is created. After Fermi level calculation completed, please use projwfc.x to calculate the PDOS." % stNewName)
+    
+def QESP_PlotPDOS(stPrefix,fFermi=None):
+    '''
+    Combine dos of orbitals to one files. Note only different l is distinguished while m is not
+    :param stPrefix: the prefix of dos files
+    :param nFermi: the Fermi energy. If used, it will be used as zero point    
+    '''
+    bFermi = True
+    if ( fFermi == None):
+        fFermi = f_QE_ReadFermi()
+        if( fFermi == None):
+            fFermi = 0.0
+            bFermi = False
+    else:
+        print("Fermi energy %f is set as zero point." % fFermi)
+    
+    list_orbital = ["tot"]
+    list_energy = []
+    list_pdos = [[]]
+    stFolder = "./"
+    Regex= re.compile(pattern=re.escape(stPrefix)+"\\.pdos_(.*)") # filename regex
+    reAO = re.compile("atm#.*\\((.*)\\)_wfc#.*\\((.*)\\)") # atm#1(M)_wfc#1(o) regex
+    for stFileName in os.listdir(stFolder):
+        aMatch = Regex.match( stFileName )
+        if ( aMatch != None):
+            stPara = aMatch.group(1)
+            #read file
+            fIn = open(stFileName,'r')
+            list_stLine = fIn.readlines()
+            fIn.close()
+            ldos = [ float(x.split()[1]) for x in list_stLine[1:]]
+            if ( stPara == "tot"):
+                list_energy = [ float(x.split()[0]) for x in list_stLine[1:]]
+                list_pdos[0] = ldos
+                continue
+            aMatch = reAO.match(stPara)
+            if ( aMatch == None):
+                raise NameError,"File name %s seems a part of PDOS but cannot be recognized" % stFileName
+            stAtom = aMatch.group(1)
+            stOrbital = aMatch.group(2)
+            stAO = "%s(%s)" % (stAtom,stOrbital)
+            if ( stAO in list_orbital):
+                nIndex = list_orbital.index(stAO)
+                if ( len(list_pdos[nIndex]) != len(ldos)):
+                    raise ValueError,"The row count of file %s is different from others."
+                for i in range(0,len(ldos)):
+                    list_pdos[nIndex][i] += ldos[i]
+            else:
+                list_pdos.append(ldos)
+                list_orbital.append(stAO)
+    #output 
+    stNewName ="%s_pdos.dat" % stPrefix 
+    fOut = open(stNewName,'w')
+    fOut.write("  #E(eV)")
+    fOut.write("".join(["%14s" % x for x in list_orbital]))
+    fOut.write("\n")
+    for i in range(0,len(list_energy)):
+        fOut.write("%8.3f" % (list_energy[i]-fFermi))
+        for ldos in list_pdos:
+            fOut.write("%14.3e" % ldos[i])
+        fOut.write("\n")
+    fOut.close()
+    print("PDOS results are summarize into %s" % stNewName)
+    
+    xmin = min(list_energy)-1-fFermi
+    xmax = max(list_energy)+1-fFermi
+    ymin = 0
+    ymax = max([max(x) for x in list_pdos])*1.1
+    
+    #Create gnuplot file
+    stFileGP = stPrefix+"_pdos.gp"
+    fGP = open(stFileGP,'w')
+    fGP.write('''#!/usr/bin/env gnuplot
+set terminal postscript color enh
+set output "%s_pdos_gp.ps"
+
+set title "PDOS of %s"
+set xlabel "Energy(eV)"
+set ylabel "DOS(States\eV)"
+
+datafile="%s"
+xmin=%f
+xmax=%f
+ymin=%f
+ymax=%f
+ef_xpos=0
+ef_ypos=ymin-(ymax-ymin)/15.0
+
+set xrange [xmin:xmax]
+set yrange [ymin:ymax]
+
+''' % (stPrefix,stPrefix,stNewName,xmin,xmax,ymin,ymax) )
+    
+    if ( bFermi):
+        fGP.write('set arrow from 0,ymin to 0,ymax nohead lt 1 lw 2 lc rgb "black"\n')
+        fGP.write('set label 1 "E_F" at ef_xpos,ef_ypos center\n')
+        
+    fGP.write("plot ")
+    for i in range(0,len(list_pdos)-1):
+        fGP.write('datafile using 1:%d title "%s" w l ls %d,' % (i+2,list_orbital[i],i+1))
+    fGP.write('datafile using 1:%d title "%s" w l ls %d\n\n' % (len(list_pdos)+1,list_orbital[-1],len(list_pdos)))   
+    fGP.close()
+    os.chmod(stFileGP, stat.S_IRWXO | stat.S_IRWXG | stat.S_IRWXU )
+    commands.getoutput(stFileGP)
+    
+    #Create xmgrace input file
+    stFileAgr = "%s_pdos.agr" % stPrefix
+    fXM = open(stFileAgr,'w')
+    fXM.write('# Grace project file\n#\n@version 50000\n')
+    
+    if ( bFermi):
+        fXM.write('''@with line
+@    line on
+@    line g0
+@    line loctype world
+@    line %d,%f,%d,%f
+@line def
+''' % ( 0,ymin,0,ymax) )
+        fXM.write('''@with string
+@    string on
+@    string g0
+@    string loctype world
+@    string %f,%f
+@    string def "E\sF"
+''' %(0,ymin-(ymax-ymin)/15.0))
+        
+    fXM.write('''@with g0
+@    world %f,%f,%f,%f
+@    title "DOS of %s"
+@    autoticks
+@    xaxis  label "Energy (eV)"
+@    yaxis  label "DOS (States/eV)" 
+@    legend on
+@    legend loctype view
+@    legend 0.95, 0.8
+''' % (xmin,ymin,xmax,ymax,stPrefix))
+    #description
+    for i in range(0,len(list_orbital)):
+        fXM.write('@    s%d type xy\n@    s%d comment "Cols 1:%d"\n@    s%d legend  "%s"\n' % (i,i,i+2,i,list_orbital[i]))
+    #data
+    for i in range(0,len(list_orbital)):
+        fXM.write('@target G0.S%d\n@type xy\n' % i )
+        for j in range(0,len(list_pdos[0])):
+            fXM.write("%8.3f %14.3e\n" % (list_energy[j]-fFermi,list_pdos[i][j]))
+        fXM.write('&\n')
+    
+    fXM.close()
+    
+    #Create PS file
+    
+    commands.getoutput("xmgrace -hardcopy -printfile %s %s" % ( stPrefix+"_pdos_xm.ps",stFileAgr ) )
+    print("Please see result in %s ( data ), %s & %s ( gnuplot ) and %s & %s ( xmgrace )" % (stNewName,stFileGP,stPrefix+"_pdos_gp.ps",stFileAgr,stPrefix+"_pdos_xm.ps"))
+
+
+def Main(ArgList):
+    description = '''   Create a pdos calculation input from completed scf calculation and plot it.\
+ PW.x and projwfc.x are used to calculate. When plotting only, use -s option.\
+ Prefix of PDOS calculation must be specified manually. 
+'''
+    usage=''' 
+     pq_dos -i SCFinput,SCFoutput -k k1,k2,k3 -p 1 
+  OR 
+     pq_dos -i SCFinput,SCFoutput -k k1,k2,k3 -p 1 --nscf 
+  OR 
+     pq_dos -s -f Prefix [--fermi FermiEnergy]'''
+
+    parser = OptionParser(formatter=EmptyFormatter(),usage=usage,description=description)
+    parser.add_option("-i",dest="Filenames",help="The name of scf input file and output file. Must be splitted by \",\", like \"Si.in,Si.out\"")
+
+    parser.add_option("-p",dest="Process",default="-1",help="Process Count, default -1. If set to 0, use hostfile; If set to -1, program will not run")
+
+    #nscf part
+    parser.add_option("-k",dest="kpoints",help="The 3 dimension k-points in x,y,z format for Fermi level calculation")
+    parser.add_option("--nscf",dest="run_nscf",default=False,action="store_true",help="Run NSCF calculation before calculate PDOS. Default input data will be used.")
+    parser.add_option("-b",dest="nbnd",default=None,help="number of bands used in the dos calculation, given as a ratio to the number of occupied states. Program can give an estimation by default. ")
+
+    #plot only part
+    parser.add_option("--fermi",dest="Fermi",help="Fermi Energy to be set as 0 in plotting. If not used, it will be read from pq_dos.fermi file")
+    parser.add_option("-f","--prefix",dest="Prefix",help="prefix of projwfc.x output file")
+    parser.add_option("-s",dest="Show",action="store_true",default=False,help="Read projwfc.x output and send")
+    (options,args) = parser.parse_args(ArgList)
+    
+    if ( len(args) != 1 ):
+        parser.error("incorrect number of arguments.")
+
+    nProcess = int(options.Process)
+        
+    if ( options.Show):
+        if ( options.Prefix == None):
+            print("Prefix of PDOS output files must be specified.")
+            return
+        if ( options.Fermi == None):
+            QESP_PlotPDOS(options.Prefix)
+        else:
+            QESP_PlotPDOS(options.Prefix,float(options.Fermi))
+    else:
+        if ( not "," in options.Filenames):
+            print('Two file in format "file1,file2" must be specified')
+            return
+
+        (stFile1,stFile2) = [x.strip() for x in options.Filenames.split(",")]
+        if ( options.nbnd == None):
+            fExtendBand = None
+        else:
+            fExtendBand = float(options.nbnd)
+
+        if ( options.run_nscf) :
+#Run nscf first
+            if ( options.kpoints == None):
+                print("Warning: k-points not specified. Original k-points in the input file will be used.")
+                QESP_CreateFermiInput(stFile1,stFile2,fExtendBand=fExtendBand,nProcess=nProcess)
+            else:
+                QESP_CreateFermiInput(stFile1,stFile2,[int(x) for x in options.kpoints.split(',')],fExtendBand=fExtendBand,nProcess=nProcess)
+
+            if ( nProcess != -1):
+                QESP_CreatePDOSInput(stFile1,os.path.splitext(stFile1)[0]+"_nscf.out",nProcess)
+            else:
+                print("NSCF is not done so PDOS wiil not be calculated.")
+        else:
+        #Run projwfc.x directly
+            QESP_CreatePDOSInput(stFile1,stFile2,nProcess)
+
+
+if __name__ == "__main__":
+    Main(sys.argv)    

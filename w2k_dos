@@ -1,0 +1,587 @@
+#!/bin/tcsh -f
+# This shell script calculate the density of states (DOS) and prepare for plotting 
+#  A converged self-consistent calculation is assumed done in the current directory
+#
+# external programs/scripts
+#  x_lapw
+#  w2k_kgen
+#  lapw1  
+#  lapw2
+#  pw_bandanaly
+ 
+  set fullname=$0
+  set bindir=$fullname:h
+  set name=$fullname:t
+  set logfile=:log
+
+  alias RUN_KGEN $bindir/w2k_kgen
+  setenv SCRATCH ./
+
+  alias sb 'shift; breaksw'       #definition used in switch
+
+  alias exec   '(x_lapw  -f $file \!:*) ; (if ($status) goto error); (echo " running " \!:*) >>$logfile;'
+  alias print 'echo  \!:* | tee -a $outfile '
+
+  set restart=0
+  set ierr_gw = 0
+  set so_lapw2
+  set so_bandanaly
+  set soflag
+  set eece 
+  set orb 
+  set para
+  set fermi=1
+  set sp=0
+  set gwtag='_gw'
+  set gw0tag='_gw0'
+  set kstag='_ks'
+  set gwopt
+  set w2kv09
+  set cmplxflag
+
+  unset error
+  unset so
+  unset so0
+  unset nkp
+  unset file
+  unset lattice 
+  unset gwdir
+  unset gw  
+  unset withgw0
+  unset help
+
+  set full_command="$name $*" 
+
+  while ($#argv)
+    switch ($1)
+    case -c:
+      set cmplxflag='-c'; sb 
+
+    case -f:
+      shift; set file=$1:q;  sb
+
+    case -fermi:
+      shift; set fermi=$1; sb 
+
+    case -gw: 
+      shift; set gw; set gwopt = ( $gwopt -gw $1 ) ; sb 
+
+    case -gwdir:
+      shift; set gwopt = ( $gwopt -gwdir $1 ); sb 
+
+    case -withgw0:
+      set withgw0;  sb 
+
+    case -eece:
+      set eece="-eece"; sb 
+
+    case -nkp: 
+      shift; set nkp=$1:q; 
+      if ($nkp == -1) then
+        shift; set nkp=($nkp $1);  shift; set nkp=($nkp $1); shift; set nkp=($nkp $1); sb
+      endif
+
+    case -orb:
+      set orb="-orb"; sb 
+
+    case -p:
+      set para='-p'; sb
+
+    case -r:
+      shift; set restart=$1:q; sb 
+
+    case -s:
+      shift; set sp=$1; sb  
+
+    case -so:
+      set so; set soflag='-so'; sb
+
+    case -so0:
+      set so0; set so; set soflag='-so'; sb
+
+    case -v09:
+      set w2kv09="-v09"; sb 
+
+    case -h:
+      goto help  
+    default:
+      echo "Undefined option $1 !" 
+      goto help ; sb
+    endsw
+  end
+
+
+#-----------------------------------------------------------------------#
+#                  Initilization                                        #
+#-----------------------------------------------------------------------#
+
+  echo 
+  echo '--- Initilization ---'
+  echo 
+  
+  # if $file not set, set default vaule of the filename to the name of the working directory
+  # make some simple tests to be sure $file is correct 
+  set wdir=`pwd`
+  if !($?file) then
+    set file=$wdir:t
+  endif
+
+  if !(-e $file.struct ) then 
+    echo " ERROR: Current directory does not have $file.struct!" 
+    goto error 
+  endif
+
+  set outfile=$file.outdos 
+  if ( ($restart == 0 ) && ( -e $outfile ) ) rm -f $outfile 
+  echo "w2k_dos on " `date` >> $outfile 
+
+  print "Full command: ' $full_command '"
+
+  # check complex
+  # If *.in1 does not exist, indicating complex calculations
+  print " - check complex"
+  w2k_chkcmplx $cmplxflag -f $file
+  if( $status == 1 ) then
+    set cmplxflag='-c'
+    set cmplx
+  else if( $status == 0 ) then
+    set cmplxflag=''
+    unset cmplx 
+  else
+    echo "  ERROR found when chkcmplx"
+    goto error
+  endif
+
+  print ' - set spin flag '
+  switch( $sp )
+  case 0:
+    set sptag=''; breaksw
+  case 1:
+    set sptag='up'; breaksw
+  case 2:
+    set sptag='{up,dn}'; breaksw
+  endsw
+  print '  sptag = ' $sptag
+
+  set lapw1_files  = ( energy$sptag vector$sptag output1$sptag scf1$sptag )
+  set lapwso_files = ( energyso$sptag vectorso$sptag outputso )
+  set lapw2_files  = ( qtl$sptag output2$sptag scf2$sptag )
+  set kgen_files   = ( klist kgen ) 
+
+  set bakup_files  = ( $kgen_files $lapw1_files $lapw2_files )
+
+  if($?so) then 
+    set bakup_files = ( $bakup_files $lapwso_files )  
+  endif 
+
+#
+# To avoid possible confusions, the following files are backuped and recoved 
+# after this shell script is done 
+#
+
+bakup:
+  print ' - backup k-vectors files using in SCF'
+  foreach ext  ( $bakup_files )
+    if(-e $file.$ext) then 
+      print " $file.$ext => $file.${ext}-scf "  
+      cp $file.$ext $file.${ext}-scf 
+    endif 
+  end 
+
+#
+# Prepare *.int file 
+#
+# create a default int file if it does not exist 
+  if !(-e $file.int) then 
+    cat <<EOF > $file.int
+DOS input 
+ -2.00 0.002 2.00 0.003   EMIN, DE, EMAX, Gauss-broadening(>de)
+    1                      NUMBER OF DOS-CASES specified below
+    0    1   total         atom, case=column in qtl-header, label
+    1    1   Atom1 tot
+    1    2   Atom1 s
+    1    3   Atom1 p
+    2    1   Atom2 tot
+EOF
+
+  endif
+
+  print ' - choose starting point:' 
+  switch ($restart)  
+  case 1:
+    print "  start from lapw1"; goto lapw1
+  case 2:
+    print "  start from lapw2"; goto lapw2
+  case 3:
+    print "  start from tetra"; goto tetra
+  case 4: 
+    print " recover the backuped SCF files"; goto recover  
+  default:
+    print "  start from the begining"
+  endsw 
+
+lapw1:
+
+#
+# if the option -nkp present, generate k-mesh  
+#
+  if ($?nkp) then 
+    RUN_KGEN -s -f $file -nkp $nkp $w2kv09
+    if($status) then 
+       echo "ERROR when running RUN_KGEN" 
+       goto error 
+    endif 
+    print " The number of k-points for DOS" $nkp
+  endif 
+
+#
+# Calculate KS eigen-vectors by x lapw1  
+#
+  print 
+  print '--- lapw1 ---'
+  print 
+  switch($sp) 
+  case 0:
+    exec $cmplxflag $orb $para lapw1 
+    breaksw 
+  case 1:
+
+    if ( ($?so) && !($?so0) )  then 
+      exec -up $cmplxflag $para lapw1
+    else 
+      exec -up $cmplxflag $orb $para lapw1
+    endif 
+
+    breaksw
+  case 2: 
+    if ( ($?so) && !($?so0) ) then 
+      exec -up $cmplxflag $para lapw1
+      exec -dn $cmplxflag $para lapw1
+    else 
+      exec -up $cmplxflag $orb $para lapw1
+      exec -dn $cmplxflag $orb $para lapw1
+    endif 
+    breaksw
+  default:
+    print "ERROR: wrong option for spin"
+    exit 1
+    breaksw
+  endsw
+
+  if($?so) then 
+    print '--------------------'
+    print '-   lapwso         -'
+    print '--------------------'
+    set so_bandanaly="-so"
+    set so_lapw2="-so"
+    if( ! $?cmplx ) set so_lapw2="-c -so"
+
+    if ($sp == 1) then 
+      exec -dn $cmplxflag $orb $para lapw1
+    endif 
+
+    if ( $sp == 0 ) then 
+      exec $cmplxflag $para lapwso
+    else 
+      if ($?so0) then 
+        exec $cmplxflag $para -up lapwso
+      else 
+        exec $cmplxflag $para -up $orb lapwso
+      endif 
+    endif 
+  endif 
+
+lapw2:
+#
+# Calculate partial charges by x lapw2
+#
+  print 
+  print '--- lapw2 for qtl ---'
+  print 
+
+  switch($sp)
+  case 0:
+    exec $cmplxflag -qtl $eece $para $so_lapw2 lapw2 
+    breaksw
+  case 1:
+    cp -f $file.energyup $file.energydn
+    exec $cmplxflag -qtl $eece $para $so_lapw2 -up lapw2
+    breaksw
+  case 2:
+    exec $cmplxflag -qtl $eece $para $so_lapw2 -up lapw2
+    exec $cmplxflag -qtl $eece $para $so_lapw2 -dn lapw2
+    breaksw
+  endsw
+  print ' '
+  print '------------------- Kohn-Sham Band Gap ----------------------'  
+  pw_bandanaly -f $file -fer $fermi  -s $sp $so_bandanaly | tee -a $outfile
+  print ' '
+
+lapw2-gw:
+  if($?gw) then
+
+    foreach ext ( $lapw2_files )
+      if(-e $file.$ext) mv $file.$ext $file.$ext$kstag
+    end
+
+    w2k_gwnvf -f $file -s $sp $gwopt
+    if($status != 0 ) then 
+      set ierr_gw = 1
+      goto tetra 
+    endif 
+
+    foreach ext ( energy$sptag vector$sptag )
+      mv -f $file.$ext $file.$ext$kstag 
+      mv -f $file.$ext$gwtag $file.$ext
+    end
+
+    if ( $sp == 1 ) then 
+      cp -f $file.energyup $file.energydn
+    endif 
+
+    if($?so) then
+      print '--------------------'
+      print '-   lapwso/GW      -'
+      print '--------------------'
+
+      # make a copy of original so output files
+      foreach ext ( $lapwso_files )
+        mv $file.$ext $file.$ext$kstag
+      end
+
+      if ( $sp == 0 ) then
+        exec $cmplxflag $para lapwso
+      else
+        exec $cmplxflag $para -up lapwso
+      endif
+    endif
+
+    switch($sp)
+    case 0:
+      exec  $cmplxflag -qtl $eece $so_lapw2 lapw2   
+      breaksw
+    case 1:
+      exec $cmplxflag -up -qtl $eece $so_lapw2 lapw2 
+      breaksw
+    case 2:
+      exec $cmplxflag -up -qtl $eece $so_lapw2 lapw2  
+      exec $cmplxflag -dn -qtl $eece $so_lapw2 lapw2  
+      breaksw
+    endsw
+    print '------------------- G0W0 Band Gap ----------------------'
+    pw_bandanaly -f $file -fer $fermi  -s $sp $so_bandanaly | tee -a $outfile
+
+    foreach ext ( $lapw2_files energy$sptag vector$sptag) 
+      mv $file.$ext $file.$ext$gwtag
+      mv $file.$ext$kstag $file.${ext}
+    end 
+
+      # make a copy of original so print files
+    if($?so) then 
+      foreach ext ( $lapwso_files )
+        mv $file.$ext $file.$ext$gwtag
+        mv $file.$ext$kstag $file.$ext
+      end
+    endif 
+
+
+    if($?withgw0) then
+
+      foreach ext ( $lapw2_files )
+        if(-e $file.$ext) mv $file.$ext $file.$ext$kstag
+      end
+
+      w2k_gwnvf -f $file -s $sp $gwopt -usegw0
+      if($status != 0 ) then
+        set ierr_gw = 1
+        goto tetra
+      endif
+
+      foreach ext ( energy$sptag vector$sptag )
+        mv -f $file.$ext $file.$ext$kstag
+        mv -f $file.$ext$gw0tag $file.$ext
+      end
+
+      if ( $sp == 1) then 
+        cp -f $file.energyup $file.energydn
+      endif 
+
+      if($?so) then
+        print '--------------------'
+        print '-   lapwso/GW0     -'
+        print '--------------------'
+
+        # make a copy of original so output files
+        foreach ext ( $lapwso_files )
+          mv $file.$ext $file.$ext$kstag
+        end
+
+        if( $sp == 0 ) then
+          exec $cmplxflag $para lapwso
+        else
+          exec $cmplxflag $para -up lapwso
+        endif
+      endif
+
+      switch($sp)
+      case 0:
+        exec  $cmplxflag -qtl $eece $so_lapw2 lapw2
+        breaksw
+      case 1:
+        exec $cmplxflag -up -qtl $eece $so_lapw2 lapw2
+        breaksw
+      case 2:
+        exec $cmplxflag -up -qtl $eece $so_lapw2 lapw2
+        exec $cmplxflag -dn -qtl $eece $so_lapw2 lapw2
+        breaksw
+      endsw
+
+      print ' '
+      print '------------------- GW0 Band Gap ----------------------'
+      pw_bandanaly -f $file -fer $fermi  -s $sp $so_bandanaly | tee -a $outfile
+      print ' '
+
+      foreach ext ( $lapw2_files energy$sptag vector$sptag )
+        mv $file.$ext $file.$ext$gw0tag
+        mv $file.$ext$kstag $file.${ext}
+      end
+
+      if($?so) then
+        foreach ext ( $lapwso_files )
+          mv $file.$ext $file.$ext$gw0tag
+          mv $file.$ext$kstag $file.$ext
+        end
+      endif
+
+    endif # withgw0
+
+  endif  # gw
+
+
+tetra:
+  print
+  print ' --- tetra ---'
+  print
+
+  if( $restart == 3 ) then 
+    foreach ext ( qtl$sptag kgen ) 
+      mv -f $file.$ext-dos  $file.$ext
+    end
+  endif 
+
+# get GW DOS
+  if( $?gw && ( $ierr_gw == 0 ) ) then
+    foreach ext ( qtl$sptag ) 
+      mv -f $file.$ext         $file.$ext$kstag 
+      mv -f $file.$ext$gwtag   $file.$ext 
+    end
+
+    switch($sp)
+    case 0:
+      exec tetra    
+      breaksw
+    case 1:
+      exec -up tetra 
+      breaksw
+    case 2:
+      exec -up tetra 
+      exec -dn tetra 
+      breaksw
+    endsw
+    foreach ext ( dos{1,2,3}ev$sptag dos{1,2,3}$sptag outputt$sptag) 
+      if( -e $file.$ext) mv -f $file.$ext $file.$ext$gwtag
+    end
+    foreach ext ( qtl$sptag )
+      mv -f $file.$ext            $file.$ext$gwtag
+      mv -f $file.$ext$kstag      $file.$ext
+    end
+
+    if($?withgw0) then 
+      foreach ext ( qtl$sptag )
+        mv -f $file.$ext         $file.$ext$kstag
+        mv -f $file.$ext$gw0tag  $file.$ext
+      end
+      switch($sp)
+      case 0:
+        exec tetra
+        breaksw
+      case 1:
+        exec -up tetra
+        breaksw
+      case 2:
+        exec -up tetra
+        exec -dn tetra
+        breaksw
+      endsw
+      foreach ext ( dos{1,2,3}ev$sptag dos{1,2,3}$sptag outputt$sptag)
+        if( -e $file.$ext) mv -f $file.$ext $file.$ext$gw0tag
+      end
+      foreach ext ( qtl$sptag )
+        mv -f $file.$ext            $file.$ext$gw0tag
+        mv -f $file.$ext$kstag      $file.$ext
+      end
+    endif # gw0
+
+  endif # gw
+
+  switch($sp)
+  case 0:
+    exec tetra 
+    breaksw
+  case 1:
+    exec -up tetra 
+    breaksw
+  case 2:
+    exec -up tetra 
+    exec -dn tetra 
+    breaksw
+  endsw
+
+# recover backuped files 
+recover:
+  print 
+  print '--- recover backuped SCF files ---'
+  print 
+  foreach ext  ( $bakup_files )
+    if ( -e $file.${ext} )     mv -f $file.${ext} $file.${ext}-dos 
+    if ( -e $file.${ext}-scf ) mv -f $file.${ext}-scf  $file.${ext}
+  end
+  exit 0
+
+error:
+  print " ERROR in w2k_dos"
+  exit 1
+
+help:
+  cat <<EOF 
+  Usage: `basename $0` [options]
+  Options:
+    -c,  --complex              # complex calculation
+    -fermi <0/1/2>              # option for where to extract Fermi energy 
+                                #  0  -- from *.scf
+                                #  1  -- from *.scf2 (default)
+                                #  2  -- from *.qtl  (default)  
+
+    -gw <gwexe>                 # generate GW DOS using <gwexe> 
+    -gwdir <gwdir>              # directory that store the gw output 
+    -withgw0                    # also generate GW0 DOS
+    -eece                       # for eece calculation
+    -orb                        # orb calculation 
+    -f <file>                   # filename 
+    -h                          # write help and exit 
+    -p                          # run lapw1/2 in parallel mode
+    -s <0/1/2>                  # option for spin polarized cases
+                                #  0 -- spin unpolarized 
+                                #  1 -- spin polarized but only spin up is calculated (for sp_c_lapw or afm_lapw) 
+                                #  2 -- spin polarized 
+    -so                         #  with spin-orbit coupling 
+    -so0                        #  ask for a perturbative SOC calculation 
+    -nkp <number of kpoints>    # Number of kpoints needed for DOS calculations,
+                                  if 0 -- run kgen interactively 
+                                  if -1 -- followed by nkx nky nkz
+
+    -r <0/1/2/3/4>   >            # start from beginning/lapw1/lapw2/tetra/recover 
+    -v09                        # use wien2k v09.1 
+EOF
+
+

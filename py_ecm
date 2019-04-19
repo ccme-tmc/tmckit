@@ -1,0 +1,64 @@
+#!/usr/bin/env python
+## this file contains functions used for embedded cluster model (ECM) calculations
+import sys,os,shutil
+import commands,string
+from math import *
+from numpy import *
+from io_utils import *
+from latt_utils import *
+from ecm_utils  import *
+
+
+def_origin = [0.0, 0.0, 0.0]
+def_rin = 0.5
+def_rout = 1.0
+def_depth = 0.0 
+def_inp = "cxyz"
+
+rin  = f_Getopt("-rin", 1, def_rin    )
+rout = f_Getopt("-rout",1, def_rout   )
+origin = f_Getopt("-o", 3, def_origin )
+depth = f_Getopt("-d",  1, def_depth  )
+
+
+a  = 4.21; b=a; c=a
+af = 90.0; bt=af; gm = af 
+
+alatt = [a,b,c,af,bt,gm]
+ch_Mg= 2.0
+ch_O = -2.0
+
+basis = [ ["Mg",[0.0,0.0,0.0]],\
+          ["O", [0.5,0.0,0.0]] ]
+
+pca_rot = [ [-1.0, 0.0, 0.0],\
+            [ 0.0,-1.0, 0.0],\
+            [ 0.0, 0.0, 1.0] ]
+
+charges = [ch_Mg,ch_O]
+latt_type = 'F'
+
+rmax_in = a*rin
+rmax_out = a*rout  
+buffers = None #["Ne",None]
+origin = [ 0.25, 0.25, 0.25]
+depth = 0.0  
+dir = None #[0,0,1]
+
+pca = []
+core = f_Cluster_Extract(latt_type,alatt,basis,rmax_in,charges=charges,dir=dir,depth=depth,origin=origin,debug=True)
+#f_Post_Analysis(core,pca)
+
+cluster,pca = f_Cluster_Embed(latt_type,alatt,core,basis,rmax_out,\
+               charges=charges,buffers=buffers,depth = depth, \
+               origin=origin,dir=dir,debug=True)
+
+#cluster,pca = f_Cluster(alatt,basis,size_in,size_out,shape=0,cmode= 1, depth=0.0, origin=origin,debug=False)
+f_Post_Analysis(cluster,pca)
+
+f_ECM_Write_View(cluster,pca)
+f_ECM_Write_PCA(pca)
+f_ECM_Write_Cluster(cluster)
+
+f_ECM_Export(cluster,pca,form="aims",name="MgO-4-pca-904-geometry.in")
+

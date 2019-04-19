@@ -1,0 +1,236 @@
+#!/bin/tcsh -f
+#   w2k_gwnvf
+#    This shell-script generated GW corrected Kohn-Sham energies and orbitals 
+#    by calling task_nvf in the GW code 
+#
+
+  set fullname=$0
+  set bindir=$fullname:h
+  set name=$fullname:t
+
+
+  alias sb 'shift; breaksw'       #definition used in switch
+
+  alias exec   '(x_lapw  -f $file \!:*) ; (if ($status) goto error); (echo " running " \!:*) >>$logfile'
+  alias print 'echo  \!:* | tee -a $file.outdos'
+
+# Get options
+  echo "Command to be executed:" $*
+
+  set restart=0
+  set ierr_gw = 0
+  set soflag=''
+  set sp=0
+  set gwtag='_gw'
+  set bandtag
+  set gwexe=gwsv6
+
+  unset so
+  unset nkp
+  unset file
+  unset lattice 
+  unset gwdir
+  unset usegw0
+  unset help
+  unset afm 
+  while ($#argv)
+    switch ($1)
+    case -afm:
+      set afm 
+    case -band:
+      set bandtag='_band'; sb 
+    case -f:
+      shift; set file=$1:q;  sb
+    case -gw: 
+      shift; set gwexe=$1 ; sb 
+    case -gwdir:
+      shift; set gwdir = $1; sb 
+    case -usegw0:
+      set gwtag='_gw0'; set usegw0;  sb 
+    case -s:
+      shift; set sp=$1; sb  
+    case -h:
+      goto help  
+    default:
+      echo "$name : Undefined option $1!" 
+      goto help ; sb
+    endsw
+  end
+
+
+#-----------------------------------------------------------------------#
+#                  Initilization                                        #
+#-----------------------------------------------------------------------#
+
+  echo 
+  echo '--- Initilization ---'
+  echo 
+  
+  # if $file not set, set default vaule of the filename to the name of the working directory
+  # make some simple tests to be sure $file is correct 
+  set wdir=`pwd`
+  if !($?file) then
+    set file=$wdir:t
+  endif
+
+  if !(-e $file.struct ) then 
+    echo " ERROR: Current directory does not have $file.struct!" 
+    goto error 
+  endif 
+
+#
+# check gw and gwdir 
+#
+  echo "* Check gwexe and gwdir *"
+  echo "gwexe: " $gwexe 
+  if !(-e `which $gwexe`) then 
+    print "ERROR: GW program $gwexe can not be found"
+    goto error 
+  endif 
+
+  if !($?gwdir) then
+    if ( ( -e $file.ingw ) && ( -e $file.eqpH ) ) then
+      set gwdir = $wdir
+    else
+      print " ERROR: gwdir is not defined!! "
+      goto error 
+    endif
+  else 
+    if !( -e $gwdir) then 
+      print ' ERROR: gwdir does not exist!'
+      goto error  
+    else 
+      if( !( -e $gwdir/$file.ingw ) || !( -e $gwdir/$file.eqpH ) ) then 
+        print ' ERROR: gwdir does not contain gw files!'
+        goto error 
+      endif 
+    endif 
+  endif  
+  print 'gwdir: ' $gwdir
+
+  switch( $sp )
+  case 0:
+    set spflag=''; breaksw
+  case 1:
+    set spflag='up'; breaksw
+  case 2:
+    set spflag='{up,dn}'; breaksw
+  endsw
+  print '  spflag = ' $spflag
+  set filelist = ( vector$spflag energy$spflag )
+
+#
+#  Setup files for task_nvf
+#
+  echo 
+  echo "--- setup files for task_nvf ---"
+  echo 
+
+  cd $gwdir
+  if($?usegw0) then 
+    if !(-e $file.eqpH_gw0 ) then 
+      echo " ERROR: GW0 is required but $file.eqpH_gw0 does not exist!"
+      goto error 
+    else 
+      mv gap.def gap.def_bak 
+      sed 's/eqpH/eqpH_gw0/g' gws.def_bak >gws.def
+    endif 
+  endif 
+
+  mv $file.ingw $file.ingw_bak 
+
+  echo " copy the file " $wdir/$file.klist$bandtag  
+  cp $wdir/$file.klist$bandtag ./$file.klist
+  foreach ext ( $filelist )
+    echo " copy the file " $wdir/$file.${ext}  
+    mv  $file.$ext $file.${ext}_bak
+    cp  $wdir/$file.${ext} ./ 
+  end
+  awk -v tsk='nvf' '{if(index($0,"Task")){$3 = "\""tsk"\""};print $0}' $file.ingw_bak >>& $file.ingw
+
+#
+#  run task_nvf
+#
+  echo 
+  echo "--- run task_nvf ---"
+  echo 
+
+  print ' <<<< run gws <<<<' 
+  $gwexe  
+
+  if($status != 0 ) then 
+    echo 'ERROR when running task_nvf'
+    set ierr_gw=1
+    goto recover_gw
+  endif 
+
+  print ' >>>> done    >>>> ' 
+
+#
+# check whether gwexe is properly done 
+#
+  tail -n 10 $file.outgw | grep 'ERROR in task_nvf' 
+  if( $status == 0 ) then 
+    print '  ERROR in task_nvf found '
+    set ierr_gw=1
+    goto recover_gw
+  endif
+
+#
+# mv output files of task_nvf to the working diretory
+#
+  echo 
+  echo " --- get task_nvf output files ---"
+  echo 
+
+  if ( $sp == 1 ) then 
+    mv  $file.energy_nvf $wdir/$file.energyup$gwtag
+    mv  $file.vector_nvf $wdir/$file.vectorup$gwtag 
+  else 
+    foreach ext ( $filelist )
+      mv  $file.${ext}_nvf $wdir/$file.${ext}$gwtag
+    end
+  endif 
+
+recover_gw:
+
+  echo 
+  echo " --- recover gwdir ---"
+  echo 
+  mv $file.ingw_bak $file.ingw
+  mv $file.klist_bak $file.klist
+  foreach ext ( $filelist )
+    mv $file.${ext}_bak $file.${ext}
+  end
+  if($?usegw0) then 
+    mv -f gws.def gws.def-gw0
+    mv gws.def_bak gws.def
+  endif 
+
+  cd $wdir
+  if($ierr_gw == 1) goto error 
+ 
+done:
+  echo "$name ended successfully!" 
+  exit 0
+
+error:
+  print " ERROR in $name"
+  exit 1
+
+help:
+  cat <<EOF 
+ Usage: `basename $0` [options]
+ Options:
+    -gw <gwexe>                 # generate GW DOS using <gwexe> 
+    -gwdir <gwdir>              # directory that store the gw output 
+    -usegw0                     # generate GW0 DOS
+    -f <file>                   # filename 
+    -h                          # write help and exit 
+    -s <0/1/2>                  # option for spin polarized cases
+                                #  0 -- spin unpolarized 
+                                #  1 -- spin polarized but only spin up is calculated (for sp_c_lapw or afm_lapw) 
+                                #  2 -- spin polarized 
+EOF
+
+

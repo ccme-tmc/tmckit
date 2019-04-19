@@ -1,0 +1,165 @@
+#!/usr/bin/env python
+import sys,os,shutil
+import numpy
+from struct_utils  import *
+from constants     import *
+from vasp_utils_jh import * 
+from io_utils      import *
+from data_utils    import * 
+from band_utils    import f_Band_GetGap
+
+def write_incar(ecut,nb,ax=0.0,loptic=False):
+  """
+  Create a INCAR file with the defaul setting 
+  """
+  ofile = open('INCAR','w') 
+  ofile.write("general:\n")
+  ofile.write(" ENCUT = %8.2f\n"%(ecut))
+  ofile.write(" ISMEAR = -4\n")
+  ofile.write(" NBANDS = %d\n"%(nb))
+
+  ofile.write(" LVTOT = .TRUE.\n")
+  ofile.write(" LVHAR = .TRUE.\n")
+
+  if loptic:
+    ofile.write(" LOPTICS = .TRUE.; NEDOS = 2000 \n")
+
+  if ax > 0.0:
+    ofile.write(" LHFCALC = .TRUE.; ALGO=All; PRECFOCK = Normal; AEXX = %8.3f\n"%(ax))
+    
+  ofile.close()
+
+def set_aexx(ax,emi):
+  """
+  Obtain the value of aexx that satisfies the requirement 
+	ax = 1/epsm(ax) == emi(ax)
+  by assuming 
+      emi(ax) = a + b*ax + c*ax**2
+  """
+
+  if len(ax)==1:
+    return emi[0]
+
+  elif len(ax) == 2: 
+    return ax[1]*emi[0]/(ax[1]+emi[0]-emi[1])
+
+  elif len(ax)==3: 
+    (e0,e1,e2) = (emi[0],emi[1],emi[2])
+    (ax1,ax2)  = (ax[1],ax[2])
+    a = e0
+    c = (ax2*(e1-e0) - ax1*(e2-e0))/(ax1*ax2*(ax1-ax2))
+    b = (e2 - e0 - c*ax2*ax2)/ax2
+  else:
+    coef = numpy.polyfit(ax,emi,2)
+    a = coef[2]
+    b = coef[1]
+    c = coef[0] 
+
+  print "a,b,c=%8.3f %8.3f %8.3f"%(a,b,c)
+
+  as1 = ( - (b-1.0) + sqrt( (b-1.0)**2 - 4*a*c) )/(2*c) 
+  as2 = ( - (b-1.0) - sqrt( (b-1.0)**2 - 4*a*c) )/(2*c)
+  print "as1,as2= %8.3f %8.3f"%(as1,as2)
+  if (as1 < 0.0 or as1 > 1.0) and (as2 < 0.0 or as2 > 1.0):
+    print "ERROR: no appropriate value of alpha has been found by quadratic fitting!"
+    sys.exit(1) 
+  elif as1 > 0.0 and as1 < 1.0: 
+    return as1 
+  else:
+    return as2 
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to hybrid functional calculation using vasp\n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -D               # set the debug mode
+    -h               # display this help information
+    -f   <fn>         # the prefix for various output files 
+    -nb  <nb>         # the number of bands
+    -nk  <nk=10>      # the number of k-points 
+    -nks <nx ny nz>  # the number of k-points 
+    -im  <imax=5>    # the maximal number of iterations for hybrid + optic calculations 
+    -ec  <ecut=300>  # ecut 
+    -t   <tol=0.01>   # tolerance for running the further calculation 
+    -r                # set restart 
+    -p   <np>         # parallel running
+  Examples:
+  """
+  sys.exit(0)
+
+#--------------------------------------------------------------------#
+#                         main body of the script                    #
+#--------------------------------------------------------------------# 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+debug = f_Getopt('-D',0,False)
+nb    = f_Getopt('-nb',1,40 )
+nk    = f_Getopt('-nk',1,10 )
+nks   = f_Getopt('-nks',3,[0,0,0])
+ecut  = f_Getopt('-ec',1,300.0 ) 
+np    = f_Getopt('-p', 1, 1    ) 
+tol   = f_Getopt('-t', 1, 0.01 ) 
+imax  = f_Getopt('-im',1, 6    )
+fn    = f_Getopt('-f', 1, 'vasp') 
+restart = f_Getopt('-r',0,False) 
+
+if nks[0] == 0:
+  for i in range(3): nks[i]=nk
+
+vasp_write_kpoints(nks) 
+
+outfile = "OUTCAR"
+
+sah_out = fn+"-SAH.dat"
+
+ax_all = []
+emi_all = []
+i0 = 0 
+if restart:
+  data = f_Read_Data(sah_out)
+  for i in range(len(data)):
+    i0 += 1
+    ax_all.append(data[i][1])
+    emi_all.append(data[i][3])
+
+  of_sah = open(sah_out,'a') 
+
+  if debug: 
+    print "Restart from i=%d"%(i0)
+    print "Preceding results:"
+    print "  ax     =", ax_all
+    print "  1/epsm =",emi_all
+
+else:
+  of_sah = open(sah_out,'w') 
+  of_sah.write("#%4s%8s%8s%8s%8s\n"%("i","ax","epsm","1/epsm","Egap"))
+
+# obtain the next guess by assuming a quadratic function
+for i in range(i0,imax):
+  if i==0:
+    ax = 0.0
+  else:
+    ax = set_aexx(ax_all,emi_all) 
+
+  write_incar(ecut,nb,ax)
+  vasp_run(np)
+  em = max(vasp_getout("epsm",outfile,debug=debug)) 
+  egap = vasp_getout("gap",outfile,debug=debug) 
+  print ":SAH i, ax, em, 1/em, Egap= %5d%8.3f%8.3f%8.3f%8.3f"%(i, ax, em, 1/em, egap)
+  of_sah.write("%5d%8.3f%8.3f%8.3f%8.3f \n"%(i,ax,em,1.0/em,egap))
+
+  outfile_new = outfile + "-" + fn + "-sah%d"%(i)
+  os.rename(outfile,outfile_new)
+
+  ax_all.append(ax)
+  emi_all.append(1.0/em)
+
+  # check convergence, at least two hybrid calculations are performed  
+  if i > 1 and abs(ax - 1.0/em) < tol: break 
+
+print "The SAH approach is successful within %d hybrid + optic calculations"%(i)
+of_sah.close()
+

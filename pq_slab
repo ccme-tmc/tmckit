@@ -1,0 +1,318 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+from optparse import OptionParser
+import sys,os,copy,re
+
+from qesp_utils import QESP_PW_input,QESP_PW_output,f_QE_DefaultRunCommand
+import pbs_utils
+import time
+
+def QESP_CreateSlab(stFileNameIn,stFileNameOut, nLatt = 7 , nVacuum = 5, nFix = 3, nShift = 0, stAxis = "001", mRot = [[1,0],[0,1]], ibrav = -1):
+    '''
+    Read a struct and generate slab
+    '''
+    stSuffix1 = "+slab-%d+vac-%d" % ( nLatt,nVacuum) 
+    stCaseName = os.path.splitext(stFileNameIn)[0]
+    stNewName = stFileNameOut
+    if ( os.path.exists(stNewName)):
+        print("Input file %s already exists. Nothing done." % stNewName)
+        return 
+    
+    qIn = QESP_PW_input(stFileNameIn)
+    aCell = qIn.GetCell()
+    ibrav_org = qIn.ibrav
+    
+    aSurfCell = aCell.CreateSurfCell(stAxis, mRot=mRot)
+    qIn.ReadFromCell(aSurfCell)
+    qIn.WriteToFile("tmp.in") # debug information
+    
+    aSlab,listFix= aSurfCell.CreateSlab(-1.0, nLatt, nVacuum, nFix, nShift)
+    #print(aSlab.fLatticeLength)  
+    qIn.ReadFromCell(aSlab)
+    
+    for i in listFix:
+        qIn.listInnerCoord[i][4:7] = [0,0,0]
+    #print(qIn.listInnerCoord)
+        
+    qIn.listKPtGrid[2] = 1
+    qIn.calculation = "relax"
+    
+    if ( ibrav == -1):
+        # usable when only a/b/c axis  expand
+        if ( stAxis == "001" or stAxis == "010" or stAxis == "100"):
+            if ( ibrav_org == 1 or ibrav_org == 2 or ibrav_org == 3): #Cubic -> Tetra
+                qIn.ibrav = 6
+            else:
+                qIn.ibrav = ibrav_org
+            if ( stAxis == "010" or stAxis == "100"):
+                if ( ibrav_org == 6 or ibrav_org == 7):
+                    qIn.ibrav = 8
+        if ( qIn.ibrav != 14):
+            print("Detected new ibrav: %d" % qIn.ibrav)
+    else:
+        qIn.ibrav = ibrav 
+    
+    qIn.WriteToFile(stNewName, "alat")
+    print("k-points along c axis is automatically set to 1, please modify this if it is not what you want.")
+    
+    pass
+    
+
+def QESP_CalcMonolayer(stFileNameIn,stWorkDir,nExpand=1):
+    '''
+    Slice a mono layer from layer structure
+    '''
+    stSuffix1 = "mono" 
+    stCaseName = os.path.splitext(stFileNameIn)[0]
+    stNewName = stCaseName + "-" + stSuffix1 +".in"
+    if ( os.path.exists(stWorkDir )):
+        #print("Working directory '%s' already exists. The calculation will stop." % stWorkDir,file=sys.stderr)
+        #return
+        stIn = os.path.join(stWorkDir,stNewName)
+        if ( os.path.exists(stIn)):
+            print("Input file %s already exists. Nothing done." % stIn)
+            return 
+    else:
+        os.mkdir(stWorkDir) 
+        
+    qIn = QESP_PW_input(stFileNameIn)
+    #delete all atom c >= 0.49
+    aCell = qIn.GetCell()
+    listAtom = copy.deepcopy(aCell.listAtom)
+    aCell.listAtom = []
+    bTMDC = False
+    for aAtom in listAtom:
+        if ( aAtom[0] == "Mo" or aAtom[0] == "W"):
+            bTMDC = True    
+        if ( aAtom[3] < 0.49 ):
+            aCell.listAtom.append(aAtom)
+            
+    aCell.ChangeCell("%s:%s" % ( "tmdc" if bTMDC else "c", str(nExpand)))
+    qIn.ReadFromCell(aCell)
+    qIn.WriteToFile(os.path.join(stWorkDir,stNewName), "alat")    
+              
+    #Create script    
+    pbs_utils.f_CreatePBSScript(stCaseName,[f_QE_DefaultRunCommand(stCaseName + "-" + stSuffix1)])
+    return 0
+      
+
+def QESP_CalcLayerBindingEnergy_Expand(stFileNameIn,stFileNameOut,stWorkDir,nExpand=2):
+    '''
+    Calculate binding energy between layer, use original-longdistance diff method
+    Need a complete vc-relax result and its input file as input to create cell.
+    Cells : minimum energy structure and it * nExpand
+    '''
+    
+    stSuffix1 = "lowest" 
+    stSuffix2 = "lowexpand"
+    
+    stCaseName = os.path.splitext(stFileNameIn)[0]
+    
+    if ( os.path.exists(stWorkDir )):
+        #print("Working directory '%s' already exists. The calculation will stop." % stWorkDir,file=sys.stderr)
+        #return
+        stIn = os.path.join(stWorkDir,stCaseName + "-" + stSuffix1 +".in")
+        if ( os.path.exists(stIn)):
+            print("Input file %s already exists. Nothing done." % stIn)
+            return 
+    else:
+        os.mkdir(stWorkDir)
+    
+    #read lowest ( output file )
+    qOut = QESP_PW_output(stFileNameOut)
+    aCell = qOut.arLattice[-1]
+    #print("read file")
+    
+    #read parameter (from input file)
+    qIn = QESP_PW_input(stFileNameIn) # reload
+    qIn.calculation = "scf"
+    
+    # modify output dir 
+    if( hasattr(qIn,"outdir")):
+        qIn.outdir = qIn.outdir + "_"+stCaseName+"_" + stSuffix1
+    if ( hasattr(qIn,"wfcdir")):
+        qIn.wfcdir = qIn.wfcdir + "_"+stCaseName+"_" + stSuffix1
+    qIn.ReadFromCell(aCell)
+    
+    qIn.WriteToFile(os.path.join(stWorkDir,stCaseName + "-" + stSuffix1 +".in"), "alat")
+    
+    #read input file ( lowest expand )    
+    qIn = QESP_PW_input(stFileNameIn)
+    qIn.calculation = "scf"
+    # modify output dir 
+    if( hasattr(qIn,"outdir")):
+        qIn.outdir = qIn.outdir + "_"+stCaseName+"_" + stSuffix2
+    if ( hasattr(qIn,"wfcdir")):
+        qIn.wfcdir = qIn.wfcdir + "_"+stCaseName+"_" + stSuffix2
+    
+    #Expand C axis
+    #Detect if TMDC or other layer structure ( With Mo/W )
+    listAtom = aCell.GetAtomList("conv", "conv")
+    bTMDC = False
+    for aAtom in listAtom:
+        if ( aAtom[0] == "Mo" or aAtom[0] == "W"):
+            bTMDC = True
+            break
+    if ( bTMDC):
+        aCell.ChangeCell("tmdc:%s" % str(nExpand))
+    else:
+        aCell.ChangeCell("c:%s" % str(nExpand))
+    
+    qIn.ReadFromCell(aCell)
+    qIn.WriteToFile(os.path.join(stWorkDir,stCaseName + "-"+stSuffix2+".in"), "alat")    
+              
+    #Create script    
+    pbs_utils.f_CreatePBSScript(stCaseName,[f_QE_DefaultRunCommand(stCaseName+"-"+stSuffix1),f_QE_DefaultRunCommand(stCaseName+"-"+stSuffix2)])
+    
+    pass
+
+def QESP_CalcLayerBindingEnergy(stFileNameIn,stFileNameOut,stWorkDir,nLatt = 1 , nVacuum = 1):
+    '''
+    Calculate binding energy between layer, use SLAB-Bulk diff method
+    Need a complete vc-relax result and its input file as input to create SLAB from.
+    :param stSurface: The miller index of lattice orientation to create SLAB from. Only 100,010 and 001 is currently supported.
+    :param nLatt: The layer count of cell in SLAB 
+    :param nVacuum: The length of vacuum in SLAB relative to orignial structure
+    :param stWorkDir: the directory to put file
+    '''
+    
+    stCaseName = os.path.splitext(stFileNameIn)[0]
+    
+    if ( os.path.exists(stWorkDir )):
+        #print("Working directory '%s' already exists. The calculation will stop." % stWorkDir,file=sys.stderr)
+        #return
+        stIn = os.path.join(stWorkDir,stCaseName + "-Slab.in")
+        if ( os.path.exists(stIn)):
+            print("Input file %s already exists. Nothing done." % stIn)
+            return 
+    else:
+        os.mkdir(stWorkDir)
+          
+    qOut = QESP_PW_output(stFileNameOut)
+    
+    #Create SLAB
+    qIn = QESP_PW_input(stFileNameIn) 
+    qIn.calculation = "scf"
+    Latt = copy.deepcopy(qOut.arLattice[-1])
+    Latt.ExpandCell("001",nLatt,nVacuum)
+    
+    qIn.ReadFromCell(Latt)
+    # modify output dir 
+    if( hasattr(qIn,"outdir")):
+        qIn.outdir = qIn.outdir + "_"+stCaseName+"_slab"
+    if ( hasattr(qIn,"wfcdir")):
+        qIn.wfcdir = qIn.wfcdir + "_"+stCaseName+"_slab"
+    
+    qIn.WriteToFile(os.path.join(stWorkDir,stCaseName + "-Slab.in"), "alat")
+    
+    #Create BULK
+    qIn = QESP_PW_input(stFileNameIn) # reload
+    qIn.calculation = "scf"
+    Latt = copy.deepcopy(qOut.arLattice[-1])
+    Latt.ExpandCell("001",nLatt+nVacuum,0)
+    qIn.ReadFromCell(Latt)
+
+    # modify output dir 
+    if( hasattr(qIn,"outdir")):
+        qIn.outdir = qIn.outdir + "_"+stCaseName+"_bulk"
+    if ( hasattr(qIn,"wfcdir")):
+        qIn.wfcdir = qIn.wfcdir + "_"+stCaseName+"_bulk"    
+    
+    qIn.WriteToFile(os.path.join(stWorkDir,stCaseName + "-Bulk.in"), "alat")
+    
+    #Create script
+    #pbs_utils.f_CreatePBSScript(stCaseName+"-Slab",[f_QE_DefaultRunCommand(stCaseName+"-Slab")])
+    #pbs_utils.f_CreatePBSScript(stCaseName+"-Bulk",[f_QE_DefaultRunCommand(stCaseName+"-Bulk")])
+    
+    pbs_utils.f_CreatePBSScript(stCaseName,[f_QE_DefaultRunCommand(stCaseName+"-Slab"),f_QE_DefaultRunCommand(stCaseName+"-Bulk")])
+    
+    #print information
+    #print("Calculation setup finished.\nPlease use pq_layer -s -n %d -v %d in the working directory to see the result" % (nLatt,nVacuum))
+    
+def QESP_ReadLayerBindingEnergy(stCaseName,stFolder= None):
+    '''
+    Read all *.out from folder and arrange them with Slab / Bulk
+    '''
+    if ( stFolder == None):
+        stFolder = os.getcwd()
+    
+    reName = re.compile("%s(.*)-(.*)\\.out" % stCaseName)
+    dicResult = {}
+    listKeyword = []
+    
+    for stFileName in os.listdir(stFolder):
+        aMatch = reName.match(stFileName)
+        if ( aMatch != None):
+            stName = aMatch.group(1)
+            if (not dicResult.has_key(stName)):
+                dicResult[stName] = {}
+            outPW = QESP_PW_output(stFileName)
+            stKind = aMatch.group(2).lower()
+            
+            if ( not stKind in listKeyword):
+                listKeyword.append(stKind)
+            
+            dicResult[stName][stKind] = outPW.FinalEnergy()
+    
+    stHeadline = "Case"
+    for key in listKeyword:
+        stHeadline += "\t%s" % key
+    print(stHeadline)
+    
+    for stName,dicResult in dicResult.iteritems():
+        stLine = stName
+        for key in listKeyword:
+            stLine += "\t%s" % dicResult.get(key,"-1")
+        print(stLine)
+        
+
+def Main(ArgList):
+    
+    time1 = time.time()
+    
+    description = '''Create a slab model from a quantum-espresso input file.                 
+    Setup calculation first and use "-s" option to read results later.        
+    Example:                                                                   
+        pq_slab -n 15 -v 3 --fix 3 --shift 2 -x 110 -r "3,0,0,3" -i tio2.in -o tio2_slab.in           
+        pq_slab -n 5 -v 3                                                      
+    Note the surface cell should be in the right direction as Quantum-Espresso
+ ibrav specific convention, i.e a hexagonal sqrt(3)*sqrt(3) 30 degree cell should
+be [[2,1],[-1,1]] but not [[2,1],[1,2]], which the angle at (0,0,0) is 60 degree but not 120 degree
+    '''
+    usage="usage: pq_slab -f FileName -d Output Folder -n LayerCount -v VacuumCount -x Direction -r Surface Cell Matrix --fix Fixed Middle Layer --shift The Starting Layer"
+    parser = OptionParser(usage=usage,description=description)
+    parser.add_option("-i",dest="stFile",help="The name of input file")
+    parser.add_option("-o",dest="stFileOut",help="The name of output file")
+    parser.add_option("--ibrav",dest="st_ibrav",default = "-1",help="The ibrav of slab structure, -1 means auto detect ( cannot be determined by program currently except some special condition ; if lattice have F/I/C, program may produce duplicated atom )")
+    parser.add_option("-n",dest="stLayer",help="layer of cell in model ")
+    parser.add_option("-v",dest="stVacuum",help="layer of vacuum in model ")
+    parser.add_option("-x",dest="stAxis",default = "001",help="slab surface axis ")
+    parser.add_option("--fix",dest="stFix",default = "0",help="Layer fixed in SLAB")
+    parser.add_option("--shift",dest="stShift",default = "0",help="Layer start from which layer in cell in the order of c axis in SLAB")
+    parser.add_option("-r",dest="stRot",default =None,help="The surface cell matrix")
+    #parser.add_option("-d",dest="stDir",help="The directory to place file")
+    #parser.add_option("--dr",dest="stRunDir",default = None,help = "The directory in qsub, indicating PBS change to that directory and run files")
+    parser.add_option("-s",dest="bShow",action="store_true",default = False, help="read the energy difference" )    
+    (options,args) = parser.parse_args(ArgList)
+    if ( len(args) != 1 ):
+        parser.error("incorrect number of arguments.")
+
+    if ( options.bShow):
+        QESP_ReadLayerBindingEnergy(options.stFile,options.stDir)
+    else:
+        #pbs_utils.PBS_Queue = "high"
+        #pbs_utils.PBS_RunDir = options.stRunDir
+        #pbs_utils.PBS_WriteDir = options.stDir 
+
+        mRot = [[1,0],[0,1]]
+        if ( options.stRot != None):
+            listRot = options.stRot.split(",")
+            for i in range(0,2):
+                for j in range(0,2):
+                    mRot[i][j] = int(listRot[i*2+j])
+        QESP_CreateSlab(options.stFile,options.stFileOut,int(options.stLayer),int(options.stVacuum),int(options.stFix),int(options.stShift),options.stAxis,mRot,int(options.st_ibrav))
+        
+    print("Time use:%4.2fs" % (time.time() - time1))
+if __name__ == "__main__":
+    Main(sys.argv)

@@ -1,0 +1,35 @@
+&control
+  calculation = 'scf'
+  restart_mode = 'from_scratch'
+  tstress = .true.
+  tprnfor = .true.
+  outdir = './out'
+  prefix = ''
+  wf_collect = .true.
+  verbosity = 'high'
+/
+
+
+&system
+  ecutwfc = 20.0 
+  ntyp = 0
+  nat = 0
+/
+
+&electrons
+  diagonalization='cg'
+  mixing_mode = 'plain'
+  mixing_beta = 0.7
+  conv_thr =  1.0d-8
+/
+
+&ions
+  ion_dynamics = 'bfgs'
+  ion_positions = 'default'
+/
+
+ATOMIC_SPECIES
+ATOMIC_POSITIONS alat
+K_POINTS automatic
+1 1 1 0 0 0
+

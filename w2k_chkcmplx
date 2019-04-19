@@ -1,0 +1,92 @@
+#!/bin/tcsh -f
+
+# This script  run a complete constrained DFT calculation starting from an given supercell structure 
+
+set fullname=$0
+set bindir=$fullname:h
+set name=$fullname:t
+echo "$name : check whether it is for a complex calculation"
+
+alias sb 'shift; breaksw'       #definition used in switcha
+unset file 
+unset cmplx 
+
+while ($#argv)
+  switch ($1)
+    case -f:
+      shift; set file=$1; sb 
+    case -c:
+      set cmplx; sb 
+    case -h:
+      goto help
+    default:
+      echo " ERROR: Undefined argument" $1
+      goto help 
+  endsw
+end
+
+# set default vaule of the filename to the name of the working directory
+  if (! $?file) then
+    set file  = `pwd`
+    set file  = $file:t
+  endif
+
+  # check complex
+  # if cmplx not defined, then set cmplx by checking whether *.in1c exists
+  # if cmplx is defined, then check whether the required *.in1$cmplx file exists
+
+  if($?cmplx) then 
+    if !( -e $file.in1c ) goto error 
+    if ( -z $file.in1c ) goto error 
+    goto done   
+  endif 
+
+  # if both in1 and in1c exists
+  if( ( -e $file.in1 ) && (-e $file.in1c ) ) then
+    echo "  WARNING: both *.in1 and *.in1c file exists"
+    if ( -z $file.in1 ) then 
+      echo "  WARNING: *.in1 has zero size!"
+      if ( -z $file.in1c ) then 
+        echo "  ERROR: both in1 and in1c are empty!"
+        goto error
+      else 
+        set cmplx       
+      endif 
+    else 
+      if ( -z $file.in1c ) then   
+        echo "  WARNING: *.in1c has zero size !"
+        unset cmplx 
+      else  
+        echo '  ERROR: neither *.in1 and *.in1c are empty!!'
+        goto error 
+      endif 
+    endif 
+  else   # if both in1 and in1c exists
+    if ( -e $file.in1c ) then 
+      set cmplx
+    else 
+      unset cmplx
+    endif 
+  endif 
+
+done:
+  if($?cmplx) then 
+    echo " - cmplex calculation"
+    exit 1
+  else 
+    echo " - real calculation"
+    exit 0
+  endif 
+
+error: 
+  echo "  ERROR in w2k_chkcmplx"
+  exit -1
+  
+help:
+    cat <<EOF
+  Usage: `basename $0` [options]
+  Options:
+    -f <case name>   
+    -c                # if present, then check whether *.in1c exists
+    -h                # show this information 
+EOF

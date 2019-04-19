@@ -1,0 +1,55 @@
+#!/usr/bin/env python
+import commands
+from io_utils import *
+from struct_utils import *
+from gau_utils    import *
+from constants import *
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to facilitate extracting results from g09 output  \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:  
+    -D                 # set debug mode
+    -h                 # display this help information 
+    -f <file >         # the name for g09 output    
+    -t <task>          # what to extract  
+                       #  etot --  total energy 
+                       #  en   --  orbital energy 
+                       #  geom --  structrue
+""" 
+  sys.exit(0)
+
+def_task = 'etot' 
+def_debug = False 
+def_file =''
+
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+debug  = f_Getopt('-D'   ,   0, def_debug) 
+file   = f_Getopt('-f'     , 1, def_file)
+task   = f_Getopt('-t'     , 1, def_task) 
+
+prefix = os.path.splitext(file)[0]
+
+if task == 'geom': 
+  print "Extract reorg calculations results"
+  mol = f_Gau_Read_Struct(file,0)
+  if len(mol)<2: 
+    print "ERROR: Fail to extract structure from the file " + inp 
+    sys.exit(1) 
+  f_Write_Struct_gjf(prefix+"-out", mol[-1])
+
+elif task == 'etot': 
+  etot = f_Gau_read_energy(file) 
+  for i in range(len(etot)):
+    print "Etot(%2d)=%12.6f"%(i+1,etot[i])
+elif task == 'gap':
+  data = f_Gau_read_egap(file,1,debug=debug)
+  egap = data[0][0]*Ha2eV
+  ehomo = data[0][1]*Ha2eV
+  print "E_HOMO = %8.3f eV, Eg(HOMO-LUMO)=%8.3f eV"%(ehomo,egap)
+
+  

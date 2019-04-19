@@ -1,0 +1,118 @@
+#!/usr/bin/env python
+
+import sys,os,copy
+from argparse import ArgumentParser
+
+from constants import Ry2eV
+from common_caseutil import Lattice, KPointsT, f_Split_RangeString
+from band_utils import f_Band_GetGap,BandsT
+from py_band import uni_ReadBand
+from chem_utils import f_Element_Z_to_ValenceElectronCount,f_Element_Symbol_to_Z
+from package_utils import uni_Package_Detect
+from yaeh_utils import yaeh_CreateInputFile
+from tbgw_utils import tbgw_create_input
+
+def f_RemoveCoreElectron(latt,list_band,n_electron):
+    '''
+    Keep only valence electron in band structure
+    Based on valence electron definition in 
+    The number may be larger than actual valence electrons in PP calculation, pay attetion please.
+    :param aCell: lattice structure
+    :param n_electron
+    :return: the new band structure, number of valence electrons left
+    '''
+    listAtom = latt.GetAtomList("prim","prim")
+    nVal = 0
+    for atom in listAtom:
+        nZ = f_Element_Symbol_to_Z(atom[0])
+        nVal += f_Element_Z_to_ValenceElectronCount(nZ)
+
+    print("Detect valence electron count: %i" % nVal)
+    if (n_electron < nVal):
+        raise ValueError,"Number of valence electron is larger than the actual number of eletron!"
+
+    list_band2 = [ x[(n_electron-nVal)/2:] for x in list_band]
+    return list_band2,nVal 
+
+def f_remove_bands(list_band,st_range,eig_fermi):
+    '''
+    Remove some bands from the band structure and returns the number of bands that removed
+    '''
+    ar_index = [int(x) for x in f_Split_RangeString(st_range)]
+    ar_index.sort()
+    list_band2 = []
+    list_occ = []
+    for band in list_band:
+        list_band2.append([x for i,x in enumerate(band) if (i+1) not in ar_index])
+        n_occ = 0
+        for index in ar_index:
+            if (band[index-1] <= eig_fermi):
+                n_occ += 1
+        list_occ.append(n_occ)
+    list_occ.sort()
+    if (list_occ[0] != list_occ[-1]):
+        print("Warning: bands removed across the Fermi level, please make sure it is what you want..")
+    return list_band2,min(list_occ)
+
+def Main(ArgList):
+    description = '''Create necessary file for TB or EH program from Wien2K, Quantum-Espresso or SIESTA result.
+This program is nearly identical to py_band.py, however, for TB/EH, core electron must be removed from calculation, which is done here. Also it is possible to eliminate some other bands like d-orbitals.
+    '''
+    parser = ArgumentParser(description=description)
+    parser.add_argument("-i",dest="Program",default="auto",help="The reference package name")
+    parser.add_argument("-d",dest="Outdir",default="tbfit",required=True,help="The folder to save files for tight-binding")
+    parser.add_argument("-e",dest="ProgramSE",default="yaeh",required=True,help="The semi-empirical package name, support yaeh and tbgwpw (Planewave in TBGW)")
+    parser.add_argument("--remove-band",dest="RemoveBand",default="",required=False,help="The indicies of bands to remove; in the format of RangeString like 1~10~1. The lowest index is 1")
+    parser.add_argument("program_args",default=[],nargs="*",help="Extra arguments to read the band")
+    options = parser.parse_args()
+
+    stProgram = uni_Package_Detect(options.Program,[])
+
+    #Read band
+    #aKPt,listBand,dVBM,nElectron,nSpin = uni_ReadBand(stProgram,args[1:])
+    band = uni_ReadBand(stProgram,options.program_args)
+
+    stOutDir = options.Outdir
+    aKPt2 = None
+
+    #If no VBM is found then try to calculate it
+    band.guess_vbm()
+
+    #Remove core electron in calculation
+    band.list_eig,band.num_electron = f_RemoveCoreElectron(band.kpt.latt,band.list_eig,band.num_electron)
+
+    #Remove extra bands
+    if (options.RemoveBand != ""):
+        l1,n1 = f_remove_bands(band.list_eig,options.RemoveBand,band.vbm)
+        band.num_electron -= n1 * (2 / band.num_spin)
+        band.list_eig = l1
+        print("Number of electrons with bands removed: %i" % band.num_electron)
+
+    #special treatment for Wien2k
+    if ( stProgram == "w2k"):
+        print("Note: k-point format is 'tpibabc' for lattice with alpha=beta=gamma=pi/2 like P/C/F/B cubic,tetragonal and orthorhombic , and 'crystal' for H, monoclinic/triclinic ")
+        #Create another k-point data in primitive cell crystall coordinate
+        if ( band.kpt.stMode != "crystal"):
+            aKPt2 = copy.deepcopy(band.kpt)
+            aKPt2.ConvertUnit("cart",band.kpt.latt.ConventionalCellVector)
+            aKPt2.ConvertUnit("crystal",band.kpt.latt.PrimitiveCellVector)
+
+#    f_Band_SaveData(aKPt,listBand,dVBM,stOutDir=stOutDir,nElectron=nVal,bPlot=True,bAlign=True)
+    band.save(dirname_out=stOutDir,b_plot=True,align=BandsT.align_auto)
+
+    if ( aKPt2 != None):
+        band.kpt = aKPt2
+        aKPt2.WriteToFile(os.path.join(stOutDir,"band.prim.klist"),bWriteName=True)
+        print("Extra k-point file in unit of primitive cell reciprocal vectors saved in band.prim.klist")
+
+    #Write a semi-empirical input file if possible
+    if (band.kpt.latt is not None):
+        if (options.ProgramSE == "yaeh"):
+            yaeh_CreateInputFile(os.path.join(stOutDir,"input"),band.kpt.latt,band.kpt, with_charge=False)
+            yaeh_CreateInputFile(os.path.join(stOutDir,"inputnuc"),band.kpt.latt,band.kpt, with_charge=True)
+        elif (options.ProgramSE == "tbgwpw"):
+            tbgw_create_input(os.path.join(stOutDir,"input"),band.kpt.latt,band.kpt,program="pw",nbnd=band.num_electron)
+
+
+if __name__ == "__main__":
+    Main(sys.argv)

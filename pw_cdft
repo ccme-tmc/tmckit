@@ -1,0 +1,93 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from w2k_utils    import *
+from struct_utils import *
+from io_utils     import *
+from chem_utils   import *
+from cdft_utils   import * 
+
+myname_full = sys.argv[0]
+myname = os.path.basename(myname_full)
+
+def f_Help_Info():
+  print "\n  "+myname_full + ": a Python script to run an supercell constrained DFT (cDFT) calculation by WIEN2k \n"
+  print "  Usage: " + myname + " [options]"\
+  + """
+  Options:  
+    -D               # set the debug mode (default) 
+    -a <at_imp>      # the atom with one of which is treated as the impurity 
+    -c <config=1>    # which spin configuration to use 
+                        0 -- Anisimov-Gunnarsson, 
+                        1 -- low-spin 
+                        2 -- high-spin
+    -f  <case_name>  # case name 
+    -ia <iat_imp>    # the index for the atom to be treated as the impurity, 
+                       by default, the index of first <at_imp> 
+    -m <mode>        #  mode = 0/1 -- "hard"/"soft" cDFT
+    -n <neutral=1>   # the neutralization scheme 
+                        0 -- valence charge
+                        1 -- background change
+    -ne <nel_orb>    # the number of d/f electrons 
+                       the default is set in terms of the common oxidation state, eg. 9.0 for Cu  
+    -nl <nl_orb>     # the principle and angular quantum number of the orbitals 
+                       the default is set in terms of the species 
+                       e.g. 3 2 for all 3d TM elements, 4 3 for all lanthanide elements 
+    -cs  <core_shift>  # the shift used for lcore, the default 1.0 Ry
+    -s1  <shift_in1>   # the shift for case.in1, the default is 20.0 
+    -t <temp>          # whether using temperature smearing to accelerate SCF convergence
+    
+  """
+  sys.exit(0)
+
+#------------------------------------------------------------------------#
+#                   Main part of the script                              #
+#------------------------------------------------------------------------# 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+at_imp    = f_Getopt('-a' ,   1, ''    )
+config    = f_Getopt('-c' ,   1, 1     ) 
+debug     = f_Getopt('-D' ,   0, True  ) 
+case_name = f_Getopt('-f' ,   1, ''    )
+iat_imp   = f_Getopt('-ia',   1, 0     )
+neutral   = f_Getopt('-n' ,   1, 1     ) 
+nel_orb   = f_Getopt('-ne',   1, -1.0  ) 
+nl_orb    = f_Getopt('-nl',   2, [0,0] )
+core_shift= f_Getopt('-cs' ,  1,  1.0  ) 
+shift_in1 = f_Getopt('-s1',   1, 20.0  ) 
+temp      = f_Getopt('-t' ,   1, -1.0  ) 
+case_name = f_Check_Name(case_name)
+cmplx     = f_Check_Complex(case_name )
+nat       = w2k_get(case_name,'nat') 
+
+#
+# get indices for all atoms of the target element, if iat_imp not set, 
+# then the first atom of the target element is treated as the impurity atom 
+#
+
+atom_ind  = f_w2k_atom_index(case_name,at_imp) 
+if len(atom_ind) == 0:
+  print "ERROR: no target atom is found in the current structure"
+  sys.exit(1) 
+
+print "  All indices for the target atom:",atom_ind 
+if iat_imp == 0:   
+  iat_imp = atom_ind[0] 
+print "  The index for the impurity atom:",iat_imp 
+
+#
+# Set the target orbital (n,l) and the corresponding occuapation number
+# if not given, set the default values according to the most common oxidation state of the target element
+#
+if nl_orb[0] == 0 :  nl_orb  = cdft_default_nl(at_imp) 
+if nel_orb < 0.0  :  nel_orb = cdft_default_nel(at_imp) 
+(n_orb,l_orb) = (nl_orb[0], nl_orb[1]) 
+print "  Target local state:\n\t(n,l)=(%1d,%1d) for atom %2s with %4.1f electrons"%(nl_orb[0],nl_orb[1],at_imp,nel_orb)
+
+(oup, odn, jflag ) = cdft_set_occ(nel_orb, l_orb, config) 
+
+tag_cdft = '_cdft'
+
+sys.exit(0) 
+
+

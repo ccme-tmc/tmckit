@@ -1,0 +1,386 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>Band structure post-processing &mdash; TMCkit 0.1 documentation</title>
+    
+    <link rel="stylesheet" href="_static/agogo.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '0.1',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="top" title="TMCkit 0.1 documentation" href="index.html" />
+    <link rel="next" title="Density of States post-processing" href="dos.html" />
+    <link rel="prev" title="Welcome to TMCkit’s documentation!" href="index.html" /> 
+  </head>
+  <body role="document">
+    <div class="header-wrapper" role="banner">
+      <div class="header">
+        <div class="headertitle"><a
+          href="index.html">TMCkit 0.1 documentation</a></div>
+        <div class="rel" role="navigation" aria-label="related navigation">
+          <a href="index.html" title="Welcome to TMCkit’s documentation!"
+             accesskey="P">previous</a> |
+          <a href="dos.html" title="Density of States post-processing"
+             accesskey="N">next</a> |
+          <a href="py-modindex.html" title="Python Module Index"
+             >modules</a> |
+          <a href="genindex.html" title="General Index"
+             accesskey="I">index</a>
+        </div>
+       </div>
+    </div>
+
+    <div class="content-wrapper">
+      <div class="content">
+        <div class="document">
+            
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="band-structure-post-processing">
+<h1>Band structure post-processing<a class="headerlink" href="#band-structure-post-processing" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="overview-of-py-band-py">
+<h2>Overview of py_band.py<a class="headerlink" href="#overview-of-py-band-py" title="Permalink to this headline">¶</a></h2>
+<p><strong class="program">py_band.py</strong> provides a all-in-one solution to plot and analyze band structures from multiple packages. It supports some key features in the band structure processing. Here we provides some examples to show its functions.</p>
+</div>
+<div class="section" id="how-to-use">
+<h2>How to use<a class="headerlink" href="#how-to-use" title="Permalink to this headline">¶</a></h2>
+<p>The easiest way to use py_band.py is</p>
+<ol class="arabic simple">
+<li>Do a band structure calculation of given package (Like <strong class="program">WIEN2K</strong> or <strong class="program">VASP</strong>), keeps all the output files</li>
+<li>Type <strong class="program">py_band.py</strong> and press enter</li>
+<li>The band structure is plotted in band/plotband.agr</li>
+<li>Use <strong class="program">xmgrace band/plotband.agr</strong> to see the band structure in xmgrace.</li>
+<li>Other band information, like the band gap, is written in other files <code class="file docutils literal"><span class="pre">band/band.gap</span></code>. All information is written in <code class="file docutils literal"><span class="pre">band/band.xml</span></code>.</li>
+</ol>
+<p>In general, to quickly view the bandstructure, just type</p>
+<div class="highlight-shell-session"><div class="highlight"><pre><span class="go">$ py_band.py</span>
+<span class="go">$ xmgrace band/plotband.agr</span>
+</pre></div>
+</div>
+<p>We choose SrO as our testing materials. The plot looks like this:</p>
+<a class="reference internal image-reference" href="_images/band-default.png"><img alt="_images/band-default.png" src="_images/band-default.png" style="width: 600px;" /></a>
+<p>However, you may not satisfy with the default picture. There are multiple ways to make it better.</p>
+</div>
+<div class="section" id="better-style">
+<h2>Better style<a class="headerlink" href="#better-style" title="Permalink to this headline">¶</a></h2>
+<p>The default picture in xmgrace consists of very thin lines if you have never adjust the xmgrace default template.</p>
+<p>To make it fit to the paper and slides, we make the lines thicker and characters larger that can be done in <strong class="program">xmgrace</strong>. After setting all line width to 2 and char size to 1.5, we have</p>
+<a class="reference internal image-reference" href="_images/band-default-beauty.png"><img alt="_images/band-default-beauty.png" src="_images/band-default-beauty.png" style="width: 600px;" /></a>
+<p>Now this image is much more clear than the default one.</p>
+<p>However, we would like to get a .agr file immediately instead of manually modifying it in <strong class="program">xmgrace</strong> with lots of mouse clicks. It is possible with the option <em>-plotinfo</em>.</p>
+<div class="highlight-shell-session"><div class="highlight"><pre><span class="go">$ py_band.py --plotinfo plotsetting.json</span>
+<span class="go">$ xmgrace band/plotband.agr</span>
+</pre></div>
+</div>
+<p>The file <code class="file docutils literal"><span class="pre">plotsetting.json</span></code> must be created by the user, which can be used multiple times. To achieve the effect above, we define following options:</p>
+<div class="highlight-javascript"><div class="highlight"><pre><span class="p">{</span><span class="s2">&quot;plot_setting&quot;</span><span class="o">:</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;ymin&quot;</span> <span class="o">:</span> <span class="o">-</span><span class="mi">3</span><span class="p">,</span>
+        <span class="s2">&quot;ymax&quot;</span> <span class="o">:</span> <span class="mi">15</span><span class="p">,</span>
+        <span class="s2">&quot;frame linewidth&quot;</span> <span class="o">:</span> <span class="mi">2</span><span class="p">,</span>
+        <span class="s2">&quot;line linewidth&quot;</span> <span class="o">:</span> <span class="mi">2</span><span class="p">,</span>
+        <span class="s2">&quot;symbol linewidth&quot;</span> <span class="o">:</span> <span class="mi">2</span><span class="p">,</span>
+        <span class="s2">&quot;yaxis label char size&quot;</span> <span class="o">:</span> <span class="mf">1.5</span><span class="p">,</span>
+        <span class="s2">&quot;yaxis ticklabel char size&quot;</span> <span class="o">:</span> <span class="mf">1.5</span><span class="p">,</span>
+        <span class="s2">&quot;xaxis ticklabel char size&quot;</span> <span class="o">:</span> <span class="mf">1.5</span><span class="p">,</span>
+        <span class="s2">&quot;title&quot;</span> <span class="o">:</span> <span class="s2">&quot;\&quot;\&quot;&quot;</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="align-valence-band-maximum-to-0">
+<h2>Align Valence Band Maximum to 0<a class="headerlink" href="#align-valence-band-maximum-to-0" title="Permalink to this headline">¶</a></h2>
+<p>In previous pictures, the valence band maximum (VBM) is indicated as a dashed line (for metals it is the Fermi level), but it is not 0. As plenty of publications use the 0 as the VBM, we can also do it easily here.</p>
+<p>To do this, we just add two options:</p>
+<div class="highlight-shell-session"><div class="highlight"><pre><span class="go">$ py_band.py -f -g --plotinfo plotsetting.json</span>
+</pre></div>
+</div>
+<p>Where <em>-f</em> means to overwrite the previous <code class="file docutils literal"><span class="pre">band</span></code> folder (or you will see nothing changed!) and <em>-g</em> means to put the VBM or Fermi level at 0, and shift all other pictures.</p>
+<a class="reference internal image-reference" href="_images/band-align.png"><img alt="_images/band-align.png" src="_images/band-align.png" style="width: 600px;" /></a>
+</div>
+<div class="section" id="mark-special-k-points">
+<h2>Mark special k-points<a class="headerlink" href="#mark-special-k-points" title="Permalink to this headline">¶</a></h2>
+<p>This bandstructure contains only eigenvalues, which does not mark any special k-points. As the maximums and minimums are often at the special points, and in the literatures they are always displayed, it is better to mark them.</p>
+<p>Unfortunately, there is no unique way to get the names of special k-points from most first-principles calculations. In <strong class="program">WIEN2K</strong>, the templates indeed contains the names of special k-points and can be read. In most other programs, the names are not even written at anywhere.</p>
+<p>So at most time we must input the names of k-points manually. To do this, we can use the <em>-kname</em> options. In this</p>
+<div class="highlight-shell-session"><div class="highlight"><pre><span class="go">$ py_band.py -f -g -kname &quot;1 W 21 L 31 Lambda 41 Gamma 61 Delta 81 X 91 Z 101 W 111 K&quot; --plotinfo plotsetting.json</span>
+</pre></div>
+</div>
+<a class="reference internal image-reference" href="_images/band-kname.png"><img alt="_images/band-kname.png" src="_images/band-kname.png" style="width: 600px;" /></a>
+<p>So by specifying the index and the name of a special k-point, we will add one vertical line in the plot to indicate its position. Note the index starts from 1 here.</p>
+</div>
+<div class="section" id="resolve-band-crossing">
+<h2>Resolve band crossing<a class="headerlink" href="#resolve-band-crossing" title="Permalink to this headline">¶</a></h2>
+<p>The band crossing is a common phenomenon in materials. However, there is also no unique way to determine whether two eigenvalue/eigenvectors are belong to the same band or not. Generally, we just plot the eigenvalues from small to large and connect them just in the order, which produces distorted plots, and all bands will never cross each other.</p>
+<p>In <strong class="program">Quantum-Espresso</strong>, the <strong class="program">plotband.x</strong> supports to classify bands according to symmetry or wavefunction coefficients, but does not always work very well as it may connects totally different bands together.</p>
+<p>In <strong class="program">py_band.py</strong>, we choose to use the differences between eigenvalues as the standard, as a band should be continous in the k-space. This method does not figure out all crossovers and not work at special k-points as the band may change the direction. The advantage is it is pretty stable and produces less exotic bands.</p>
+<p>Note this feature is not optimized very well and may cost lot of CPU times when there are lots of bands. Also, this method does not work for the spin-orbit coupling calculations as the eigenvalues of bands with same space orbitals and different spins are very close, which makes this method pretty unstable.</p>
+<div class="highlight-shell-session"><div class="highlight"><pre><span class="go">$ py_band.py -f -g -kname &quot;1 W 21 L 31 Lambda 41 Gamma 61 Delta 81 X 91 Z 101 W 111 K&quot; --cross --plotinfo plotsetting.json</span>
+</pre></div>
+</div>
+<a class="reference internal image-reference" href="_images/band-cross.png"><img alt="_images/band-cross.png" src="_images/band-cross.png" style="width: 600px;" /></a>
+<p>From the pictures above we can see that bands are indeed crossover. To make it more clear, we use different colors for each bands:</p>
+<a class="reference internal image-reference" href="_images/band-cross-color.png"><img alt="_images/band-cross-color.png" src="_images/band-cross-color.png" style="width: 600px;" /></a>
+</div>
+<div class="section" id="band-characters">
+<h2>Band Characters<a class="headerlink" href="#band-characters" title="Permalink to this headline">¶</a></h2>
+<p>Each band can be projected onto atomic orbitals of the basis set or the projectors in pseudopotentials. This information is important, but not very easy to display on the screen. Here <strong class="program">py_band.py</strong> supports plot it above the band structure.</p>
+<p>With this feature, a picture is directly generated as <strong class="program">xmgrace</strong> is not very good at plotting multiple objects. The library <strong class="program">matplotlib</strong> is used to do it.</p>
+<p>To plot with band characters, we need to add more things in the file specified by <em>-plotinfo</em>. We create <code class="file docutils literal"><span class="pre">plotinfo1.json</span></code> like this:</p>
+<div class="highlight-javascript"><div class="highlight"><pre><span class="p">{</span><span class="s2">&quot;orb_map&quot;</span><span class="o">:</span>
+    <span class="p">[</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;cond&quot;</span><span class="o">:</span><span class="p">{</span><span class="s2">&quot;none&quot;</span><span class="o">:</span><span class="mi">1</span><span class="p">},</span>
+        <span class="s2">&quot;plot&quot;</span><span class="o">:</span><span class="p">{</span><span class="s2">&quot;mode&quot;</span><span class="o">:</span><span class="s2">&quot;line&quot;</span><span class="p">,</span>
+         <span class="s2">&quot;size&quot;</span><span class="o">:</span><span class="mi">2</span><span class="p">,</span>
+         <span class="s2">&quot;color&quot;</span><span class="o">:</span><span class="s2">&quot;white&quot;</span><span class="p">}</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;cond&quot;</span><span class="o">:</span><span class="p">{</span><span class="s2">&quot;l&quot;</span><span class="o">:</span><span class="mi">1</span><span class="p">},</span>
+        <span class="s2">&quot;plot&quot;</span><span class="o">:</span><span class="p">{</span><span class="s2">&quot;mode&quot;</span><span class="o">:</span><span class="s2">&quot;line&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;color&quot;</span><span class="o">:</span><span class="s2">&quot;blue&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;size&quot;</span><span class="o">:</span><span class="mi">2</span><span class="p">}</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;cond&quot;</span><span class="o">:</span><span class="p">{</span><span class="s2">&quot;l&quot;</span><span class="o">:</span><span class="mi">0</span><span class="p">},</span>
+        <span class="s2">&quot;plot&quot;</span><span class="o">:</span><span class="p">{</span><span class="s2">&quot;mode&quot;</span><span class="o">:</span><span class="s2">&quot;line&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;color&quot;</span><span class="o">:</span><span class="s2">&quot;red&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;size&quot;</span><span class="o">:</span><span class="mi">4</span><span class="p">}</span>
+    <span class="p">}</span>
+    <span class="p">],</span>
+<span class="s2">&quot;plot_setting&quot;</span><span class="o">:</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;ymin&quot;</span> <span class="o">:</span> <span class="o">-</span><span class="mi">3</span><span class="p">,</span>
+        <span class="s2">&quot;ymax&quot;</span> <span class="o">:</span> <span class="mi">15</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>The plot_setting part is the same as above, but not all options are available. The option <em>orb_map</em> controls how to plot the character, which contains an array of objects with two keys, <em>cond</em> and <em>plot</em>. For each array element, <em>cond</em> indicates which kinds of orbitals this element applies, and <em>plot</em> indicates what should be plotted on the picture. A special <em>cond</em> that with a key &#8220;none&#8221; must exist, which is the default one for orbitals not mentioned in this file.</p>
+<p>In <em>plot</em> part, it is possible to control the color and the line width. The final color and line width is the averaged between all orbitals, and their weights are the orbital coefficients. Use above file as an example, this means for one band if it is pure p orbital (l=1), then it is blue and have line width 2, and if it is pure s orbital (l=0), it is red and have line width 4. If it is neither s nor p orbital, it is white and has line width 2. If it is mixed, then we just do an average. After creating the file, we can run the command and get the result:</p>
+<div class="highlight-shell-session"><div class="highlight"><pre><span class="go">$ py_band.py -f -g -kname &quot;1 W 21 L 31 Lambda 41 Gamma 61 Delta 81 X 91 Z 101 W 111 K&quot; --cross --plotinfo plotinfo1.json</span>
+</pre></div>
+</div>
+<a class="reference internal image-reference" href="_images/band-character1.png"><img alt="_images/band-character1.png" src="_images/band-character1.png" style="width: 600px;" /></a>
+<p>Also we can plot with symbol instead of lines.  To do this we must specify the symbol shape and change &#8220;mode&#8221;:&#8221;line&#8221; to &#8220;mode&#8221;:&#8221;symbol&#8221;.</p>
+<div class="highlight-javascript"><div class="highlight"><pre><span class="p">{</span><span class="s2">&quot;orb_map&quot;</span><span class="o">:</span>
+    <span class="p">[</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;cond&quot;</span><span class="o">:</span><span class="p">{</span><span class="s2">&quot;none&quot;</span><span class="o">:</span><span class="mi">1</span><span class="p">},</span>
+        <span class="s2">&quot;plot&quot;</span><span class="o">:</span><span class="p">{</span><span class="s2">&quot;mode&quot;</span><span class="o">:</span><span class="s2">&quot;symbol&quot;</span><span class="p">,</span>
+         <span class="s2">&quot;symbol&quot;</span><span class="o">:</span><span class="s2">&quot;o&quot;</span><span class="p">,</span>
+         <span class="s2">&quot;size&quot;</span><span class="o">:</span><span class="mi">25</span><span class="p">,</span>
+         <span class="s2">&quot;color&quot;</span><span class="o">:</span><span class="s2">&quot;white&quot;</span><span class="p">}</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;cond&quot;</span><span class="o">:</span><span class="p">{</span><span class="s2">&quot;l&quot;</span><span class="o">:</span><span class="mi">1</span><span class="p">},</span>
+        <span class="s2">&quot;plot&quot;</span><span class="o">:</span><span class="p">{</span><span class="s2">&quot;mode&quot;</span><span class="o">:</span><span class="s2">&quot;symbol&quot;</span><span class="p">,</span>
+         <span class="s2">&quot;symbol&quot;</span><span class="o">:</span><span class="s2">&quot;o&quot;</span><span class="p">,</span>
+          <span class="s2">&quot;color&quot;</span><span class="o">:</span><span class="s2">&quot;blue&quot;</span><span class="p">}</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;cond&quot;</span><span class="o">:</span><span class="p">{</span><span class="s2">&quot;l&quot;</span><span class="o">:</span><span class="mi">0</span><span class="p">},</span>
+        <span class="s2">&quot;plot&quot;</span><span class="o">:</span><span class="p">{</span><span class="s2">&quot;mode&quot;</span><span class="o">:</span><span class="s2">&quot;symbol&quot;</span><span class="p">,</span>
+         <span class="s2">&quot;symbol&quot;</span><span class="o">:</span><span class="s2">&quot;o&quot;</span><span class="p">,</span>
+          <span class="s2">&quot;color&quot;</span><span class="o">:</span><span class="s2">&quot;red&quot;</span><span class="p">}</span>
+    <span class="p">}</span>
+    <span class="p">],</span>
+<span class="s2">&quot;plot_setting&quot;</span><span class="o">:</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;ymin&quot;</span> <span class="o">:</span> <span class="o">-</span><span class="mi">3</span><span class="p">,</span>
+        <span class="s2">&quot;ymax&quot;</span> <span class="o">:</span> <span class="mi">15</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<a class="reference internal image-reference" href="_images/band-character2.png"><img alt="_images/band-character2.png" src="_images/band-character2.png" style="width: 600px;" /></a>
+</div>
+<div class="section" id="other-functions">
+<h2>Other Functions<a class="headerlink" href="#other-functions" title="Permalink to this headline">¶</a></h2>
+<p>Sometimes we may have a k-points not exactly what we want in the band structure calculation. For example, to calculate band structures with hybrid functionals, we may include some k-points for self-consistent calculations together with the special k-points. So we do not need to plot them in the picture.</p>
+<p>This can be done by <em>-removek</em> options which deletes first N k-points from the calculation.</p>
+<p>Sometimes we would like to compare two band structures by plotting them in the same picture. With <strong class="program">py_mergeagr.py</strong> we can join two band structures in .agr format directly. It can convert the first band structure to black and the second band structure to red.</p>
+<p>However, the x-axis maybe scaled, so a simple joint of two pictures may cause problem. <strong class="program">py_band.py</strong> supports copy k-points from another <strong class="program">py_band.py</strong> output that creates exactly the same k-points for later comparison. This can be done with options <em>&#8211;copyk</em>.</p>
+</div>
+<div class="section" id="summary">
+<h2>Summary<a class="headerlink" href="#summary" title="Permalink to this headline">¶</a></h2>
+<p>From above we have already show the what <strong class="program">py_band.py</strong> can do. It has following features:</p>
+<ul class="simple">
+<li>Gather band structure information into different files, including eigenvalues, k-points, the Fermi energy, the valence band maximum, the band gap, the number of electrons, the number of spins. Meanwhile, the same information is also put into one xml file.</li>
+<li>Plot band structures as <strong class="program">xmgrace</strong> and <strong class="program">gnuplot</strong> format</li>
+<li>Files mentioned above are saved in <code class="file docutils literal"><span class="pre">band</span></code> folder by default, named as <code class="file docutils literal"><span class="pre">band.*</span></code>. Plots are saved as <code class="file docutils literal"><span class="pre">plotband.*</span></code></li>
+<li>Disentangle band-crossing with eigenvalues only, determined by derivatives</li>
+<li>Add k-points names on the plots</li>
+<li>Plot eigenvalues with k-points names and coordinates from other calculations. This makes two plots comparable and can be merged with <strong class="program">py_mergeagr.py</strong>.</li>
+<li>Can convert the unit of k-points when plotting (Cartesian or reciporocal lattice vectors). This may makes one plots comparable with other plots and literature.</li>
+<li>Can remove some k-points when plotting which faciliate plotting of band structures from hybrid functionals which must include some k-points for SCF in calculations</li>
+</ul>
+<p><strong class="program">py_band.py</strong> is able to read output of multiple packages. For different packages, differnt extra filenames must be provided to run py_band.py. Supported ones are:</p>
+<ul class="simple">
+<li><strong class="program">WIEN2K</strong> None, must run in the case folder. Require case.energy_band</li>
+<li><strong class="program">FHI-GAP</strong> The file suffix like _gw-band. Must run in the case folder. The suffix _gw-band menas using <code class="file docutils literal"><span class="pre">case.energy_gw-band</span></code></li>
+<li><strong class="program">VASP</strong> None, must run in the case folder. Require at least one of OUTCAR, EIGENVAL or vasprun.xml</li>
+<li><strong class="program">SIESTA</strong> 3 files, case.fdf, stdout and case.band</li>
+<li><strong class="program">QuantumEspresso</strong> stdout from pw.x</li>
+<li><strong class="program">ABINIT</strong> 2 files, _EIG or _GW, and stdout</li>
+<li><strong class="program">Wannier90</strong> 1 file, _w90_band.dat, other files will be read according to the seedname</li>
+<li><strong class="program">RAW</strong> 1 folder, which contains all files generated by this program</li>
+</ul>
+</div>
+<div class="section" id="help">
+<h2>Help<a class="headerlink" href="#help" title="Permalink to this headline">¶</a></h2>
+<p>The simplified program help file is list below.</p>
+<div class="highlight-text"><div class="highlight"><pre>usage: py_band.py [-h] [-i PROGRAM] [-g] [--electron ELECTRON] [-s]
+                  [-d OUTPUTDIR] [-k KPOINTSUNIT] [-f] [--cross]
+                  [--plotinfo FILEPLOTINFO] [--copyk COPYKPOINTS]
+                  [--removek REMOVEKPOINTS] [--kname NAMEK]
+                  [extra_args [extra_args ...]]
+
+Plot band strcture of specific package in specific format, also create plain tabular seperated text of band structure data and k-points list.
+    File required:
+        SIESTA : .fdf , stdout, .bands
+        VASP : none, require to run in the case folder
+        WIEN2K :  none , require to run in the case folder
+        FHI-GAP : energy file name suffix (_gw-band or _gw0-band) , require to run in the WIEN2k case folder
+        QE : pw.x output
+        ABINIT : _EIG output or _GW output
+        Wannier90: _w90_band.dat file ( other files are necessary but will be selected according to this file name)
+        RAW: folder name contains all files generated by %prog 
+    By default, output folder is current folder, so it is sugguested to run this in an empty folder to avoid overwritten as it will create plenty of files.
+    Band characteres can also be plotted. To do this add &quot;--plotinfo File&quot;. The input file contains extra format informations.
+    
+
+positional arguments:
+  extra_args            Arguments passed to package-specific procedures
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -i PROGRAM            The package name
+  -g                    Shift band position to make VBM = 0 in graph
+  --electron ELECTRON   The number of electrons in the system of the band
+                        structure. This is used to determine VBM/Fermi energy.
+                        If not specified, this program will try to find from
+                        input files
+  -s                    Do not plot band structure, just write band structure
+                        data and k-point list in space-seperated format
+  -d OUTPUTDIR          The name of folder used to store output files
+  -k KPOINTSUNIT        The unit of k-points in the output, also determine
+                        x-axis distance. Possible options include
+                        &#39;cart&#39;,&#39;crystal&#39; and &#39;default&#39;, where default means
+                        use what the program read.
+  -f                    Control whether to overwrite if the output directory
+                        already exists, default is not
+  --cross               Contrl whether to resolving band-crossing by
+                        derivatives
+  --plotinfo FILEPLOTINFO
+                        The input file for plotting parameters, include band
+                        structure with band characters indicated
+  --copyk COPYKPOINTS   Copy k-points information from given band.xml, instead
+                        of use what is read. This to make two plots have the
+                        same x-coord
+  --removek REMOVEKPOINTS
+                        Remove the first N k-points in the bandstructure,
+                        especially useful when plotting HSE / metaGGA bands
+                        that must be calculated with full M-P k-points self-
+                        consistently
+  --kname NAMEK         Provide a list of names of k-points that will be
+                        plotted, in format &quot; 1 Gamma 30 X 50 L&quot;, indicies
+                        start from 1, this works after --removek
+</pre></div>
+</div>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+        </div>
+        <div class="sidebar">
+          <h3>Table Of Contents</h3>
+          <ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="">Band structure post-processing</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview-of-py-band-py">Overview of py_band.py</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#how-to-use">How to use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#better-style">Better style</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#align-valence-band-maximum-to-0">Align Valence Band Maximum to 0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#mark-special-k-points">Mark special k-points</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#resolve-band-crossing">Resolve band crossing</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#band-characters">Band Characters</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#other-functions">Other Functions</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#summary">Summary</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#help">Help</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="dos.html">Density of States post-processing</a></li>
+</ul>
+
+          <div role="search">
+            <h3 style="margin-top: 1.5em;">Search</h3>
+            <form class="search" action="search.html" method="get">
+                <input type="text" name="q" />
+                <input type="submit" value="Go" />
+                <input type="hidden" name="check_keywords" value="yes" />
+                <input type="hidden" name="area" value="default" />
+            </form>
+            <p class="searchtip" style="font-size: 90%">
+                Enter search terms or a module, class or function name.
+            </p>
+          </div>
+        </div>
+        <div class="clearer"></div>
+      </div>
+    </div>
+
+    <div class="footer-wrapper">
+      <div class="footer">
+        <div class="left">
+          <div role="navigation" aria-label="related navigaton">
+            <a href="index.html" title="Welcome to TMCkit’s documentation!"
+              >previous</a> |
+            <a href="dos.html" title="Density of States post-processing"
+              >next</a> |
+            <a href="py-modindex.html" title="Python Module Index"
+              >modules</a> |
+            <a href="genindex.html" title="General Index"
+              >index</a>
+          </div>
+          <div role="note" aria-label="source link">
+              <br/>
+              <a href="_sources/bandstructure.txt"
+                rel="nofollow">Show Source</a>
+          </div>
+        </div>
+
+        <div class="right">
+          
+    <div class="footer" role="contentinfo">
+        &copy; Copyright 2014, TMC group.
+      Created using <a href="http://sphinx-doc.org/">Sphinx</a> 1.3.1.
+    </div>
+        </div>
+        <div class="clearer"></div>
+      </div>
+    </div>
+
+  </body>
+</html>

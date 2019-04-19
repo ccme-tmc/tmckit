@@ -1,0 +1,148 @@
+#!/usr/bin/env python
+#!This module handles some common properties of lattice structures from vasprun.xml
+# and calculate neighbours of one atom in the crystal
+#
+# Originally latt2_utils.py and py_nn.py by F. Wu. Combined by M. Y. Zhang.
+
+from __future__ import print_function
+from common_caseutil import Lattice
+from argparse import ArgumentParser
+from math import sqrt, ceil
+from vasp_utils import vasp_read_latt
+import list_utils as lu
+import itertools
+
+def uni_read_latt(program_name="auto",para=[]):
+    '''
+    Read band structure from specific program result
+    :param program_name: program name, "auto" means automatically detected
+    :param para: arguments for specific programs
+    :return: Lattice object
+    '''
+    if (program_name == "auto"):
+        raise NotImplementedError("Package detection for structures not available")
+
+    dicFunc = {\
+            "auto":[(0,),None],\
+#           "w2k":[(0,1,),w2k_ReadBand],\
+#           "yaeh":[(1,),yaeh_ReadBand],\
+#           "siesta":[(3,),siesta_read_band],\
+            "vasp":[(0,1,2),vasp_read_latt],\
+#           "qe":[(1,),QESP_ReadBand],\
+#           "abinit":[(2,),abi_ReadBand],\
+            }
+
+
+    if ( not dicFunc.has_key(program_name) ):
+        raise ValueError,"Package %s is not supported!" % program_name
+
+    if ( not len(para) in dicFunc[program_name][0]):
+        raise ValueError,"incorrect number of arguments."
+    
+    return  dicFunc[program_name][1](*para)
+
+def find_atoms_in_range(matR,list_atom,len_limit):
+    '''
+    Find all atoms that in a range of len_limit away from the ix_center atom, in the periodical boudary contidion.
+
+    :param matR: Lattice vectors matrix, a/b/c in columns, unit Bohr
+    :param list_atom: Atoms in a primitive cell, unit Bohr
+
+    :return: a list of atoms in the form [ix_atom,[x,y,z]], where x,y,z are R_atom-R_center and ix_atom is the index of this atom in list_atom
+    '''
+    #Roughly estimate the farest cells
+    list_vec_far = [ 
+        [1,0,0],
+        [0,1,0],
+        [0,0,1],
+        [sqrt(2)/2, sqrt(2)/2, 0],
+        [sqrt(2)/2, 0, sqrt(2)/2],
+        [0, sqrt(2)/2, sqrt(2)/2],
+        [sqrt(3)/3, sqrt(3)/3, sqrt(3)/3],
+        ]
+    matRi = lu.f_List_inv3(matR)
+    ar_vec_far_crystal = lu.f_Matrix_dot(matRi,lu.f_Matrix_transpose(lu.f_Matrix_Op_Scalar(list_vec_far,"*",len_limit)))
+    nmax = int(ceil(max([abs(x) for x in reduce(lambda x,y:x+y,ar_vec_far_crystal)])))
+    l1 = range(nmax*2+1)
+    ar_vec_cell = [list(x) for x in itertools.product(l1,l1,l1)] #All translational vectors we need
+    ar_vec_cell = lu.f_Matrix_Op_Scalar(ar_vec_cell,"-",nmax)
+    ar_vec_cell = lu.f_Matrix_transpose(lu.f_Matrix_dot(matR, lu.f_Matrix_transpose(ar_vec_cell)))
+
+#Iterate all atoms
+    list_result = []
+    for ix_center in xrange(len(list_atom)):
+        coord_org = list_atom[ix_center][1:4]
+        list1 = []
+        for vec in ar_vec_cell:
+            for ix,atom in enumerate(list_atom):
+                vec2 = lu.f_List_Op_List(lu.f_List_Op_List(atom[1:4], "+", vec), "-", coord_org)
+                n2 = lu.f_List_norm(vec2)
+                if (n2 <= len_limit):
+                    list1.append([ix,vec2,n2])
+        list_result.append(list1)
+
+    return list_result
+
+# Calculate nearest neighbours of atoms in the cell
+
+latt = uni_read_latt(program_name="vasp",para=["finalpos"])
+
+matR = lu.f_Matrix_transpose(latt.PrimitiveCellVector)
+list_atom = latt.GetAtomList("bohr","prim")
+#list_atom = latt.GetAtomList("ang","prim")
+list_neighbour = find_atoms_in_range(matR,list_atom,8)
+#list_neighbour = find_atoms_in_range(matR,list_atom,5)
+dist_cut = 0.4
+
+
+n_exotic = 0
+for i,list_near in enumerate(list_neighbour):
+    print("Neighbours of atom %5i %4s" % (i+1,list_atom[i][0]))
+    list_near.sort(key=lambda x: lu.f_List_norm(x[1]))
+#Group with 0.1
+    list_group = []
+    list_g1 = []
+    for atom2 in list_near:
+        if (atom2[2] == 0.0):
+            continue
+        if (len(list_g1) == 0):
+            list_g1.append(atom2)
+            continue
+        if (atom2[2]-list_g1[-1][2] < dist_cut):
+            list_g1.append(atom2)
+        else:
+            list_group.append(list_g1)
+            list_g1 = [atom2]
+    list_group.append(list_g1)
+
+#Test the first coordination number
+#Distorted 4-coord
+#If first 4 are not seperated with other groups, then exotic
+    n1 = 0
+    b_exotic = True
+    for j in xrange(min(4,len(list_group))):
+        if (list_atom[0] in [x[0] for x in list_group[j]]): #Same atom coodinated; exotic
+            break
+        n1 += len(list_group[j])
+        if (n1 == 4):
+            b_exotic = False
+            break
+    if (b_exotic):
+        n_exotic += 1
+
+    for j,group1 in enumerate(list_group):
+#       print("Group %4i :%12.7f - %12.7f" % (j, group1[0][2], group1[-1][2]))
+        print("%4i :%12.7f - %12.7f" % (j, group1[0][2], group1[-1][2]), end="")
+#Count atoms in the group
+        dic_count = {}
+        for atom in group1:
+            species = list_atom[atom[0]][0]
+            if (not dic_count.has_key(species)):
+                dic_count[species] = 0
+            dic_count[species] += 1
+        for key,val in dic_count.iteritems():
+            print("%4s * %2i" % (key,val), end="")
+        #print("%5i %4s %14.7f" % (atom2[0], list_atom[atom2[0]][0], atom2[2]))
+        print("")
+
+print("Exotic atoms: %4i in %4i" % (n_exotic, len(list_atom)))

@@ -1,0 +1,139 @@
+#!/usr/bin/env python
+import os,sys
+import re,time,datetime,commands
+from argparse import ArgumentParser,RawDescriptionHelpFormatter
+
+from common_caseutil import f_Split_EnumerateRangeString,f_file_ensuredir,\
+    f_env_RunMpirunCommand,f_write_file_string, f_file_ensure_no_file
+from vasp_utils import vasp_save, vasp_load,VaspInput
+
+def vasp_scan(dic_para,dirname_in,dirname_out,num_process=-1,b_init=False):
+    '''
+    Scan parameters in VASP
+    :param dic_para: a dictionary indicate what to scan, like ENCUT:100,200,300
+    :param num_process: -1 means do not run, otherwise run with mpi
+    :param b_init: Whether delete all temporary files before each calculations, including WAVECAR and CHGCAR
+    '''
+#Create directory
+    f_file_ensuredir(dirname_in)
+    f_file_ensuredir(dirname_out)
+#Save original file
+    dirname_init = os.path.join(dirname_in,"init")
+    vasp_save(dirname=dirname_init)
+
+    for para_set in dic_para:
+#Display summary
+        st_summary = ""
+        for name_para,para in para_set:
+            st_summary += name_para + "-" + str(para) + "+"
+            st_summary = st_summary[:-1] #cut final "+"
+            #Build input content
+            vasp_load(dirname=dirname_init,mode="input")
+            case = VaspInput(dirname_init)
+#Relative or absolute value?
+            b_ref = False
+            if (name_para.endswith("_ref") or name_para.endswith("_REF")):
+                b_ref = True
+                name_para = name_para[:-4]
+            if (name_para == "kp"):
+                l3kp = [int(x) for x in para.split('x')]
+                if ( len(l3kp) != 3):
+                    raise ValueError,"%s is not in the k-points format as axbxc" % para
+                case.kpt_mp = l3kp
+            elif (name_para == "kpshift"):
+                l3kp = [float(x) for x in para.split('x')]
+                if ( len(l3kp) != 3):
+                    raise ValueError,"%s is not in the k-points format as axbxc" % para
+                case.kpt_shift = l3kp
+            elif (name_para == "kcut"):
+                case.kpt_cut = float(para)
+            elif (name_para == "a"):
+                if (b_ref):
+                    case.poscar.edit_value(1,float(para)*float(case.poscar.lines[1]))
+                else:
+                    case.poscar.edit_value(1,float(para))
+            else:
+                case.incar.edit_name_value(name_para,para)
+#Save input
+            dirname_insub = os.path.join(dirname_in,st_summary) 
+            case.write(dirname_insub)
+
+            if (num_process != -1):
+                st_info ="New Job " + st_summary + " start at " + time.strftime("%Y-%m-%d %H:%M:%S") 
+                print(st_info)
+                vasp_load(dirname=dirname_insub,mode="input")
+                if (b_init): #Delete files
+                    f_file_ensure_no_file("CHGCAR")
+                    f_file_ensure_no_file("WAVECAR")
+                status,stdout = f_env_RunMpirunCommand("vasp",num_process)                
+                if ( status != 0):
+                    print("Error in command")
+                dirname_save = os.path.join(dirname_out,st_summary)
+                vasp_save(dirname_save,mode="text")
+#Also save the stdout
+                f_write_file_string(stdout,os.path.join(dirname_save,"std.out"))
+                f_write_file_string(str(status),os.path.join(dirname_save,"std.status"))
+                print("End Job " + st_summary + " started at " + time.strftime("%Y-%m-%d %H:%M:%S"))      
+    vasp_load(dirname=dirname_init)
+    return
+
+def vasp_read_scan_result(dirname=None,list_value=["etot"]):
+    '''
+    Read all subdirectory under specific directory
+    '''
+    dirname = f_file_ensuredir(dirname)
+    os.chdir(dirname)
+    dir_cur = os.getcwd()
+    for path, subdirs, files in os.walk(dir_cur):
+        for dir in subdirs:
+            print("Result:%s" % dir)
+            os.chdir(dir)
+            result = [commands.getstatusoutput("pv_get -v %s"%x)[1] for x in list_value]
+            print("\t".join(result))
+            os.chdir(dir_cur)
+        break
+
+def Main():
+    description ='''Scan multiple parameters in VASP calculations.
+This script should be used in the working directory.
+Possible parameters are any number-like parameters in INCAR and KPOINTS
+Note only numbers in KPOINTS will be changed while mode will not
+Example:
+    ENCUT:200~600~100
+    kp:6x6x6,10x10x10 (For MP)
+    kpshift:0x0x0,0.5x0.5x0.5  (For MP)
+    kcut:10,20,40 (For Auto)
+'''
+    usage = '''
+PROG -r "PARAMETERS" 
+    Create input files and store them in ./Input directory.
+PROG -r "PARAMETERS" -p 12
+    Create input files and run calculations with 12 processes. The results will be stored in the ./Output directory.
+PROG -s efer
+    Read Fermi energies of calculated results in the ./Output folder. 
+'''
+    parser = ArgumentParser(formatter_class=RawDescriptionHelpFormatter,usage=usage,description=description)
+    parser.add_argument("-s",dest="infoshow",default=None,help="Show scanned results from SCF file. Parameters same as pv_get can be used.")
+    parser.add_argument("-r",dest="para",help="Scanning Parameter. Use ',' to seperate value, use a~b~c to define start~end~step cycle")
+    parser.add_argument("-p",dest="num_process",type=int,default=-1,help="Process Count; If set to 0, use hostfile; If set to -1, the program will not run")
+    parser.add_argument("-o",dest="dirname_out",default="Output",help="The folder to store calculated results")
+    parser.add_argument("--init",dest="b_init",action="store_true",default=False,help="Delete WAVECAR and CHGCAR before running each calculation")
+
+    options = parser.parse_args()
+
+    if (options.infoshow is not None):
+        vasp_read_scan_result(dirname=options.dirname_out,list_value=options.infoshow.split())
+
+    else:
+        print("Calculation range:%s" % options.para)
+        dic_para = f_Split_EnumerateRangeString(options.para)
+        vasp_scan(dic_para,"Input", options.dirname_out,options.num_process,options.b_init) 
+        if (options.num_process != -1):
+            print("Scan Complete. Original Case is restored.")
+            print("Scan summary:")
+            vasp_read_scan_result(dirname=options.dirname_out)
+
+
+if __name__ == "__main__":
+    #print(sys.version)
+    Main()

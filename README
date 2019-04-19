@@ -1,0 +1,37 @@
+TOC:
+ 0. overview 
+ 1. use of qrun.sh and qw2k.sh 
+ 2. use of pw_latt
+
+0. Overview 
+  This is a set of shell (prefixed by "w2k_" ) and python scripts (prefixed by "pw_") 
+used to facilitate the use of wien2k package.
+Currently there are the following functions available:
+
+  Python scripts for wien2k related operations:
+    pw_latt: lattice optimization 
+    pw_reset -- reset some critical parameters like xc functional (in0), 
+                rkmax, the number k-points 
+ 
+  Python scripts for siesta related operations 
+    ps_wfun 
+
+  bash scripts:
+    qrun.sh  --- used to submit general jobs to the pbs queue   
+    qw2k.sh  --- used to submit wien2k jobs to the pbs queue 
+
+  c-shell scripts:
+    w2k_save: a customized c-shell script for saving wien2k results
+    w2k_kgen -- generate k-mesh with or without using symmetry
+    w2k_dos  -- calculate DOS, working with gws  
+    w2k_dosx -- calculate DOS, working with gwx
+    w2k_band -- calculate band structure 
+    w2k_bandx -- calculate band structure 
+
+1. Use of qrun.sh and qw2k.sh
+
+
+2. Use of pw_latt
+
+  
+

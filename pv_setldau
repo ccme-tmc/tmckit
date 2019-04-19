@@ -1,0 +1,65 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from struct_utils  import *
+from constants     import *
+from vasp_utils_jh import * 
+from io_utils      import *
+from data_utils    import * 
+from band_utils    import * 
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to set LDA+U related parameters in INCAR \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -h                   # display this help information
+    -a <atom>            # target atom 
+    -l <lorb=2>          # angular quantum number of the target orbital     
+    -u <uval=5.0>        # the values of magnetic momentum
+    -j <jval=0.5>        # the values of magnetic momentum
+    -t <ldautype=2>      #  1 rotationally invariant 
+                            2 Dudarev et al's simplified scheme 
+                             
+  Examples:
+  """
+  sys.exit(0)
+
+# default input and output format 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+atom    = f_Getopt('-a',1,'')
+lorb    = f_Getopt('-l',1,2)
+uval    = f_Getopt('-u',1,5.0) 
+jval    = f_Getopt('-j',1,0.5) 
+ldautype = f_Getopt('-t',1,2)
+
+
+specs,nat_spec = vasp_get_spec("POSCAR")
+nspecs = len(specs) 
+
+fl_incar = open("INCAR",'a') 
+fl_incar.write("LDAU = .TRUE. \n")
+fl_incar.write("LDAUTYPE = %d \n"%(ldautype))
+fl_incar.write("LDAUPRINT = 1 \n")
+
+l_line = "LDAUL = "
+u_line = "LDAUU = "
+j_line = "LDAUJ = "
+
+for i in range(nspecs):
+  if atom == specs[i]:
+    l_line += " %2d"%(lorb)
+    u_line += " %5.2f"%(uval)
+    j_line += " %5.2f"%(jval)
+  else:
+    l_line += " -1"
+    u_line += " 0"
+    j_line += " 0"
+fl_incar.write(l_line+"\n")
+fl_incar.write(u_line+"\n")
+fl_incar.write(j_line+"\n")
+fl_incar.close()
+
+ 

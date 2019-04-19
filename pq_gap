@@ -1,0 +1,41 @@
+#!/usr/bin/env python
+
+from optparse import OptionParser
+import re
+import time
+import shutil
+import commands,copy,os,sys
+from qesp_utils import QESP_PW_input,QESP_PW_output,f_QE_ReadBand
+
+def QESP_ReadGap(stFileName):
+    qOut = QESP_PW_output(stFileName)
+    list_band,list_kpt = f_QE_ReadBand(stFileName)
+    if ( len(list_band[0]) < qOut.nElectron/2):
+        print("Error: Calculation does not included unoccupied orbitals")
+        return
+    #print([x[qOut.nElectron/2-1] for x in list_band])
+    #print([x[qOut.nElectron/2-0] for x in list_band])
+    fVBM = max([x[qOut.nElectron/2-1] for x in list_band])
+    fCBM = min([x[qOut.nElectron/2] for x in list_band])
+    fGap = fCBM-fVBM
+    print("VBM  %f" % fVBM)
+    print("CBM  %f" % fCBM)
+    print("Gap  %f" % fGap)
+       
+
+def Main(ArgList):
+    description = '''Read VBM, CBM and Fermi energy from Quantum-Espresso pw.x output. Only work for result without Relax/MD.
+    '''
+    usage="usage: pq_gap outputfile"
+    parser = OptionParser(usage=usage,description=description)
+    (options,args) = parser.parse_args(ArgList)
+    
+    if ( len(args) != 2 ):
+        parser.error("incorrect number of arguments.")
+    
+    
+    QESP_ReadGap(args[1])
+    
+
+if __name__ == "__main__":
+    Main(sys.argv)    

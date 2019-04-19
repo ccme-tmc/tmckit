@@ -1,0 +1,101 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from io_utils      import *
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to scan the parameters in the GAP2 input gw.inp \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -h                   # display this help information
+    -v <name=vals[;...]>    # set the variable with a  value
+       name:barcevtol/emaxpol/eminpol/mb_Q/mb_lblm,mb_lmbm
+    -np <nproc=1>            # the number of processes used for GW calculations
+    -i <inp_dir="inp">       # the directory name that contains the basic input files 
+    -o <out_file=gwscan.out> # the file name for the output 
+                             
+  Examples:
+  """
+  sys.exit(0)
+
+# default input and output format 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+v_inp = f_Getopt('-v',1,'')
+nproc = f_Getopt('-np',1,1) 
+inp_dir = f_Getopt('-i',1,'inp') 
+out_file = f_Getopt('-o',1,'gwscan.out') 
+
+print "v_inp=",v_inp 
+gwinp = 'gw.inp'
+
+# get case name 
+case_name = io_get_val(inp_dir + "/" + gwinp,"CaseName",'s').replace('"','') 
+print "Case Name:",case_name 
+gwout= case_name + ".outgw"
+
+job_cmd="mpirun -np %d"%(nproc)+" gap2c-mpi.x " + "; rm -rf ./tmp"
+
+v_list = v_inp.split('=') 
+v_name = v_list[0].strip()
+v_vals = v_list[1].split(',') 
+print 'The target parameter :    ',v_name 
+print 'The values to be scanned: ',v_vals  
+nv = len(v_vals) 
+
+# get the current working directory
+wdir = os.getcwd()
+print "Current working directory:",wdir
+
+
+ofile = open(out_file,'a')
+for i in range(nv):
+  os.chdir(wdir)  # always return the working directory 
+
+  v_val  = v_vals[i].strip()
+  job_name =  v_name + "_" + v_val 
+
+  shutil.copytree(inp_dir,job_name) 
+  os.chdir(job_name) 
+
+  if v_name == 'barcevtol' or v_name == 'emaxpol' or v_name =='eminpol' :
+    v_tag = v_name 
+    io_set_val(gwinp,v_tag,v_val)
+
+  elif v_name == 'mb_Q':
+    v_tag = 'MixBasis'
+    pos = '1 1'
+    io_set_val(gwinp,v_tag,v_val,pos) 
+  elif v_name == 'mb_lmbm':
+    v_tag = 'MixBasis'
+    pos = '2 1'
+    io_set_val(gwinp,v_tag,v_val,pos)
+  elif v_name == 'mb_lblm':
+    v_tag = 'MixBasis'
+    pos = '2 3'
+    io_set_val(gwinp,v_tag,v_val,pos)
+  else:
+    print "ERROR -- unsupported parameter tag:"+v_name  
+
+  ierr = os.system(job_cmd )
+  
+  # run job_mod 
+  if ierr != 0:
+    print "ERROR: something wrong when running the job for %s=%s !!!"%(v_name,v_val)
+    continue
+
+  # read main GW results 
+  EgGW = io_get_val(gwout,":BandGap_GW",'f',i=3,mode=1)
+  dVBM = io_get_val(gwout,':DeltaE_QP','f', i=4,mode=1)
+  matsize1 = io_get_val(gwout,'Old/New basis set size','i',i=8,mode=1)
+  matsize2 = io_get_val(gwout,'Old/New basis set size','i',i=8,mode=2)
+  cputime = io_get_val(gwout,'CPUTIME for                     Total GW Calculations','f',i=6,mode=1) 
+
+  if i== 0:
+    ofile.write("#%-15s %12s %12s %12s %12s %12s\n"%(" case","Eg(G0W0)","DVBM(G0W0)","matsize1","matsize2","CPU_Time"))
+  ofile.write("%-16s %12.3f %12.3f %12d %12d %12.1f\n"%(job_name,EgGW,dVBM,matsize1,matsize2,cputime))
+
+ofile.close() 
+

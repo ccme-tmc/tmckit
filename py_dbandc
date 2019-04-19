@@ -1,0 +1,273 @@
+#!/usr/bin/env python
+from __future__ import print_function
+from optparse import OptionParser
+import os,sys,re,commands
+from common_caseutil import f_GetCaseName
+from py_utils import EmptyFormatter
+import constants
+
+def f_Data_Sum(data,i1,filter=None):
+    '''
+    Get sum of one column
+    '''
+    if ( not isinstance(data,list)):
+        raise TypeError,"Data must be list type."
+
+    result = 0
+    for row in data:
+        if ( filter != None ):
+            if ( not filter(row) ):
+                continue
+        result += row[i1]
+
+    return result
+   
+
+def f_Data_SumProudct(data,i1,i2,filter=None):
+    '''
+    Get sum product of two column data
+    '''
+    if ( not isinstance(data,list)):
+        raise TypeError,"Data must be list type."
+
+    result = 0
+    for row in data:
+        if ( filter != None ):
+            if ( not filter(row) ):
+                continue
+        result += row[i1]*row[i2]
+
+    return result
+
+
+def f_QE_Get_dbandcenter(stFileName,dd=-1):
+    '''
+    Get dband center from qe pdos output
+    If number of d electron is specified then the summation range will contain 10 electron
+    '''
+    fIn = open(stFileName,'r')
+    list_stLine = fIn.readlines()
+    fIn.close()
+
+    data = [ [float(x) for x in y.split()] for y in list_stLine[1:]]
+
+    #detect whether it is spin-polarized
+    if ( "up" in list_stLine[0]):
+        print("Spin-polarized, use average of up- and down- states")
+        #Combine up and down
+        data2 = []
+        for arLine in data:
+            arLine2 = [arLine[0]]
+            i = 2
+            while ( i < len(arLine)):
+                arLine2.append(arLine[i-1]+arLine[i])
+                i += 2
+            data2.append(arLine2)
+        data = data2
+
+    if ( dd < 0  ):
+        dEneMax = max([x[0] for x in data])
+        #if ( dEneMax < fMax + fFermi):
+        #    print("Error: not enough band !")
+        #print("d-band center : %6.3f" % (f_Data_SumProudct(data,0,1,lambda m:m[0]<fMax + fFermi) / f_Data_Sum(data,1,lambda m:m[0]<fMax+fFermi)-fFermi))
+        return data,1
+    else:
+        print("This charge is wrong. Please do not use it.")
+        return None,-1
+
+        print("d occupation  : %6.3f" % dd)
+        if ( fFermi == None ):
+            print("Fermi level must be specified at d-electron mode!")
+            return None
+#sum until reach fermi
+        fDOS=0
+        fDOSM1=0
+        fOccDOS=0
+        fFullDOS=0
+        bEnd = False
+        for row in data:
+            if ( row[0] < fFermi - 10 ): # skip too deep ( probably (n-2)d ) part
+                continue
+            if ( row[0] > fFermi and fOccDOS == 0 ):
+                fOccDOS = fDOS
+                fFullDOS= fOccDOS * 10 / dd
+            elif ( fOccDOS != 0 and fDOS > fFullDOS ):
+                bEnd = True
+                fMax = row[0]-fFermi
+                break
+            fDOS += row[1]
+            fDOSM1 += row[0] * row[1]
+        if ( not bEnd ):
+            print("Error: not enough band ! Only %.2f%% d-states exists." % (fDOS/fFullDOS*100))
+        else:
+           print("Energy maximum: %6.3f" % (fMax))
+           print("d-band center : %6.3f" % ( fDOSM1/fDOS-fFermi))
+
+def f_QE_GetLowdinCharge(stFileName,nAtom):
+    '''
+    Read Lowdin charge from projwfc.x output
+    :return: a dictionary in the form of {tot:6.6,s:2,p:3,d:1}
+    '''
+    stValue = commands.getoutput("grep \"Atom #%4d\" %s" % ( nAtom,stFileName))
+    result = {}
+    reOrb = re.compile(r".*total charge =(.*), s =(.*), p =(.*), d =(.*),.*")
+    aMatch = reOrb.match(stValue)
+    if ( aMatch != None ):
+        result["tot"] = float(aMatch.group(1))
+        result["s"] = float(aMatch.group(2))
+        result["p"] = float(aMatch.group(3))
+        result["d"] = float(aMatch.group(4))
+    else:
+        print("Cannot find Atom %d in file!" % nAtom)
+
+    return result
+
+def f_w2k_Get_dbandcenter(stAtomName,bGW=False):
+    '''
+    Get dbandcenter of specific atom in Wien2K dos*ev result
+    '''
+    stCaseName = f_GetCaseName()
+    #note fermi is 0 in WIEN2k dos*ev
+    #combine all  dos*ev to one file
+    listAll = []
+    for i in range(1,10,1):
+
+        # use dos*ev or dos*ev_gw files
+        stFileName = stCaseName+".dos"+str(i)+ ("ev_gw" if  bGW else "ev" )
+
+        # if no file exists, break
+        if ( not os.path.exists(stFileName)):
+            break
+
+        print("Parsing file " + stFileName + " ...")
+        f = open(stFileName,"r")
+        if ( len(listAll) == 0):
+            listAll = f.readlines()
+        else:
+            list2 = f.readlines()
+            for j in range(0,len(listAll)):
+                listAll = listAll[j] + "    " + list2[j]
+        f.close()
+    #get numbers
+    listColName = []
+    data = []
+    for i in range(0,len(listAll)):
+        if ( "ENERGY" in listAll[i]):
+            listColName = listAll[i].split()[1:]
+            break
+    for j in range(i+1,len(listAll)):
+        data.append([float(x) for x in listAll[j].split()])
+
+    ColName = "d-"+stAtomName
+    if ( ColName in listColName):
+        nIndex = listColName.index(ColName)
+        return data,nIndex
+    else:
+        raise ValueError,"%s does not exist in dos data!" % stAtomName
+
+def f_Get_BandCenter(data,nIndex,fFermi=0,fMin=-10.0,fMax=5.0,bMax=False,fCut=-1):
+    '''
+    Get dbandcenter of specific atom from specific data
+    data format: the first column is energy, dos in other column
+    '''
+    result = 0 
+    if ( bMax ):
+        colVal = [ x[nIndex] for x in data]
+        fMax = max(colVal)
+        result = data[colVal.index(fMax)][0]
+    elif ( fCut != -1):
+        colVal = [ x[nIndex] for x in data]
+        fMax = max(colVal)
+        #result = f_Data_SumProudct(data,0,nIndex,lambda m:m[nIndex]>fMax*fCut and m[0]>fMin) / f_Data_Sum(data,nIndex,lambda m:m[nIndex]>fMax*fCut and m[0]>fMin) #seems lost some peaks in low-density d-band region
+        #detect range ( search from both sides )
+        nStep = 0
+        fLow = 0
+        fHigh = 0
+#        for fDOS in data:
+#            if ( fDOS[0]-fFermi < fMin ):
+#                continue
+#            if ( fDOS[nIndex] > fMax*fCut and nStep == 0):
+#                fLow = fDOS[0]
+#                nStep = 1
+#            elif ( fDOS[nIndex] < fMax * fCut and nStep == 1):
+#                fHigh = fDOS[0]
+#                nStep = 2
+#            elif ( fDOS[nIndex] > fMax * fCut and nStep == 2):
+#                print("\33[31mWarning: seems including some noise in high energy range!\33[m")
+#                break
+        for fDOS in data:
+            if ( fDOS[nIndex] > fMax*fCut and fDOS[0] > fFermi+fMin):
+                fLow = fDOS[0]
+                break
+        for i in range(0,len(data)):
+            if ( data[len(data)-i-1][nIndex] > fMax*fCut):
+                fHigh = data[len(data)-i-1][0]
+                break
+        print("Integration range: %f ~ %f" % (fLow-fFermi,fHigh-fFermi))
+
+        result = f_Data_SumProudct(data,0,nIndex,lambda m:m[0]>fLow and m[0]<fHigh ) / f_Data_Sum(data,nIndex,lambda m:m[0]>fLow and m[0]<fHigh) 
+
+    else:
+        result = f_Data_SumProudct(data,0,nIndex,lambda m:m[0]<fMax+fFermi and m[0]>fMin+fFermi) / f_Data_Sum(data,nIndex,lambda m:m[0]<fMax+fFermi and m[0]>fMin+fFermi)
+    print("d-band center : %6.3f" % (result-fFermi))
+
+
+
+
+def Main(ArgList):
+    description = '''Caluclate d-band center from E-DOS data. 
+projwfc.x data ( QE ) and case.dos1ev.. (Wien2K) data can be used as input. 
+Only spin-unpolarized results of WIEN2k and both sp/usp results of QE can be read.
+Fermi level will be read from pq_dos.fermi ( for QE ) or 0 ( for Wien2K ). 
+Data below Fermi-10eV will never be used regardless of methods.
+By default, data lower than 5eV above Fermi level will be used to get the average value.
+Several other methods are supported, including maximum position, and cutoff with dos lower than %percent of maximum.
+'''
+    usage = "usage: py_dbandc [--fermi FermiEnergy] [-d DElectronCount] QE_pdos_datafile OR Wien2K_Atom_Name "
+    parser = OptionParser(formatter=EmptyFormatter(),usage=usage,description=description)
+    parser.add_option("--fermi",dest="stFermi",help="Fermi energy, default from pq_dos.fermi")
+    parser.add_option("-d",dest="stCountd",default="-1",help="Method: The number of d-electron; if used, the intergral range will contain 10 d electron ( proportional to occupied d state); You can also specify stdout of projwfc.x which contain Lowdig charge. (!!!This method is not right in theory!!!) ")
+    parser.add_option("-m",dest="bMax",default=False,action="store_true",help="Method: get the maximum position")
+    parser.add_option("--cut",dest="stCut",default="-1",help="Method: Ignore all values smaller than Cut * Maximum value")
+    parser.add_option("--max",dest="stMax",default="5",help="Max energy above fermi level")
+
+    (options,args) = parser.parse_args(ArgList)
+    if ( len(args) != 2 ):
+        parser.error("Please specify one file name or atom name.")
+
+    if ( options.stFermi == None):
+        fFermi = None
+    else:
+        fFermi = float(options.stFermi)
+
+    #detect type
+    if ( not "." in args[1]): # Wien2K
+        fFermi = 0
+        data,nIndex = f_w2k_Get_dbandcenter(args[1])
+
+
+#Get dd
+    else:
+    #Get fermi
+        if ( fFermi == None):
+            fIn = open("pq_dos.fermi",'r')
+            fFermi = float(fIn.readline().strip())
+
+        if ( "out" in options.stCountd):
+            reAtom = re.compile(r".*#(.+)\(.*\((.)\)")
+            aMatch = reAtom.match(args[1])
+            if ( aMatch != None):
+                dd = f_QE_GetLowdinCharge(options.stCountd,int(aMatch.group(1)))[aMatch.group(2)]
+            else:
+                print("The file is not PDOS data of projwfc.x")
+        else:
+            dd = float(options.stCountd)
+        data,nIndex = f_QE_Get_dbandcenter(args[1])
+
+
+    f_Get_BandCenter(data,nIndex,fFermi = fFermi,fMax = float(options.stMax),bMax=options.bMax,fCut=float(options.stCut))
+
+
+
+if __name__ == "__main__":
+    Main(sys.argv)    

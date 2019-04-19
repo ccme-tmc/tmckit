@@ -1,0 +1,64 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from w2k_utils import *
+from struct_utils import *
+from io_utils import *
+
+
+myname_full = sys.argv[0]
+myname = os.path.basename(myname_full)
+
+def f_Help_Info():
+  print "\n"+ myname_full + ": a Python script to reset some critical parameters used in wien2k  calculations \n"
+  print "   Usage: " + myname + " [options]"\
+  + """
+  Options:  
+    -f <case_name>   # case name 
+    -h               # print out this information 
+    -c               # set complex
+    -xc  <xcfunc>    # choose xc functional, you can use the functional name 
+                       (lda/pbe/wc06/pbesol/am05/pw91/rpbe/tpss) or their corresponding number as defined in wien2k
+    -rk  <rkmax>     # RMT*KMAX as used in case.in1 
+    -emax <emax>     # emax in in1
+    -nk  <nkp>       # the number of k-points  (not implemented yet!!!)
+    
+    -orbu <orbu>     # reset U in inorb
+    -orbj <orbj>     # reset J in inorb 
+    
+    -rmt <rmt>       # reset the Muffin-tin radius 
+    -iat  <iat>      # the index of the atom whose parameter(s) to be reset (needed for -orbu, -orbj, -rmt)
+  """
+  sys.exit(0)
+
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+case_name = f_Getopt('-f', 1, '' )
+cmplx  = f_Getopt('-c',    0, False) 
+emax   = f_Getopt('-emax', 1, -6.0) 
+iat    = f_Getopt('-iat',  1,  0) 
+nkp    = f_Getopt('-nk',   1,  0)
+orbu   = f_Getopt('-orbu', 1, -1.0) 
+orbj   = f_Getopt('-orbj', 1, -1.0) 
+rkmax  = f_Getopt('-rk',   1,  0.0) 
+rmt    = f_Getopt('-rmt',  1, -1.0) 
+xcfunc = f_Getopt('-xc',   1, None)
+
+if cmplx: complex='c'
+else:      complex=''
+
+case_name = f_Check_Name(case_name)
+
+if not xcfunc is None: f_Set_XCFunc(case_name,xcfunc)
+
+#elif par_name == 'nkp':
+#  if par_val is None: par_val = 1000
+#  f_Set_Nk(case_name,par_val) 
+
+if rkmax > 0.0 : f_Set_RKmax(case_name,rkmax,complex)
+if emax > -6.0 : f_Set_emax(case_name,emax,complex) 
+
+if orbu >= 0.0 : f_Set_orbUJ(case_name,iat,u=orbu)
+if orbj >= 0.0 : f_Set_orbUJ(case_name,iat,j=orbj)
+
+

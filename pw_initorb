@@ -1,0 +1,126 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from w2k_utils import *
+from struct_utils import *
+from io_utils import *
+
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to initialize orb calculation \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:  
+    -a  <atoms_orb>   # which atom(s) to add orbit corrections 
+    -ax <alpha_x>     # the fraction of exact exchange  needed for EECE-Hybrid
+    -f  <case_name>   # case name 
+    -h                # print out this information 
+    -l   <lorb_str>   # l for all atoms as a string      
+    -m   <mode>       # the mode for orbit calculation 
+                      #  0 -- LDA/GGA+U  
+                      #  1 -- EECE-hybrid  
+    -nsic <nsic>      # choose which LDA+U scheme (default 1 => SIC) 
+    -uj  <uj_str>     # U and J for all atoms as a string 
+    -xc  <xcfunc>     # which xc functional(lda/pbe/wc06/pbesol/pw91/rpbe/tpss) 
+                        or their corresponding number as defined in wien2k
+  """
+  sys.exit(0)
+
+def_mode   =  0
+def_emfc = None
+def_nsic = 1
+def_iat_str  = ''
+def_lorb_str = ''
+def_uj_str   = ''
+def_xcfunc = ''
+def_alpha_x = 0.25
+def_atom_orb=''
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+casename = f_Getopt('-f', 1, '')
+mode     = f_Getopt('-m', 1, def_mode)
+atoms_orb= f_Getopt('-a', 1, '') 
+nsic     = f_Getopt('-nsic',1, def_nsic) 
+lorb_str = f_Getopt('-l', 1, def_lorb_str) 
+uj_str   = f_Getopt('-uj',1, def_uj_str) 
+alpha_x  = f_Getopt('-ax',1, def_alpha_x)
+xcfunc   = f_Getopt('-xc',1, def_xcfunc) 
+
+casename = f_Check_Name(casename)
+
+# set the indices of the target atoms 
+atoms_type = atoms_orb.split() # the 
+ntyp   = len(atoms_type)   # the number of atoms to add "orb" correction 
+
+# set l, U, J for each type of atoms 
+lorb_type = []
+if lorb_str == '':
+  for it in range(ntyp): lorb_type.append(2)
+else:
+  tl = lorb_str.split()
+  for it in range(ntyp): lorb_type.append(int(tl[it]))
+
+uj_type = [] 
+if uj_str=='':
+  for it in range(ntyp): uj_type.append([0.40, 0.00])
+else:
+  tl = uj_str.split()
+  for it in range(ntyp):
+    U = float(tl[2*it])
+    J = float(tl[2*it+1])
+    uj_type.append([U,J])
+
+
+iat_a = []
+nat_a = 0 
+lorb_a= [] 
+uj_a = []
+for it in range(ntyp):
+  ind_i  = f_w2k_atom_index(casename,atoms_type[it]) 
+  nat_i = len(ind_i) 
+  nat_a += nat_i    
+  for ia in range(nat_i): 
+    iat_a.append(ind_i[ia])
+    lorb_a.append(lorb_type[it])
+    uj_a.append([uj_type[it][0],uj_type[it][1]]) 
+
+print "iat_orb=",iat_a
+print "l_orb=",lorb_a
+print "U_J=",uj_a
+
+cmplx = f_Check_Complex(casename) 
+
+if mode == 0: # DFT+U 
+  ofile = open(casename+".inorb",'w') 
+  ofile.write("1 %-3d  0   # nmod, natorb, ipr\n"%(nat_a))
+  ofile.write("PRATT  1.0                    BROYD/PRATT, mixing\n")
+  for i in range(nat_a):
+    ofile.write("%-3d %-3d %-3d   iatom, nl, l\n"%(iat_a[i],1,lorb_a[i]))   
+
+  ofile.write("%d    nsic 0..AFM, 1..SIC, 2..HFM 3..INT\n"%(nsic))
+  for i in range(nat_a):
+    U = uj_a[i][0]
+    J = uj_a[i][1]
+    ofile.write("%-5.3f %-5.3f     U J (Ry) \n"%(U,J))
+  ofile.close()
+
+  ofile = open(casename+".indm"+cmplx,'w')
+  ofile.write("-9.      Emin cutoff energy\n")
+  ofile.write("%-d       number of atoms for which density matrix is calculated\n"%(nat_a))
+  for i in range(nat_a):
+    ofile.write("%-3d %-3d %-3d   iatom, nl,l \n"%(iat_a[i],1,lorb_a[i]))
+  ofile.write("0 0  r-index, (l,s)index")
+  ofile.close()
+
+elif mode == 1: # EECE 
+  ofile = open(casename+".ineece",'w')
+  ofile.write("-9.0 %d \n"%(nat_a))
+  for i in range(nat_a):
+    ofile.write("%-3d %-3d %-3d   iatom, nl, l\n"%(iat_a[i],1,lorb_a[i]))
+  ofile.write("HYBR\n")
+  ofile.write("%-6.3f\n"%(alpha_x))
+  ofile.close() 
+
+if xcfunc!='': f_Set_XCFunc(casename,xcfunc)
+

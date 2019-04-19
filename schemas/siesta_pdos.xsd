@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <xs:element name="pdos" type="pdos"/>
+
+    <xs:complexType name="pdos">
+        <xs:sequence>
+            <xs:element minOccurs="1" maxOccurs="1" name="nspin" type="xs:int"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="energy_values" type="energy_values_type"/>
+            <xs:element minOccurs="1" maxOccurs="unbounded" name="orbital" type="orbital_type"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="energy_values_type">
+        <xs:simpleContent>
+            <xs:extension base="TableOfenergy_values">
+                <xs:attribute name="units" type="xs:string"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <xs:complexType name="TableOfenergy_values">
+        <xs:sequence>
+            <xs:element name="item" type="ArrayOfTableRowOfenergy_values" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="ArrayOfTableRowOfenergy_values">
+        <xs:sequence>
+            <xs:element name="item" type="xs:decimal" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="orbital_type">
+        <xs:sequence>
+            <xs:element name="data" type="TableOforbital_type_data" minOccurs="1" maxOccurs="1"/>
+        </xs:sequence>
+        <xs:attribute name="index" type="xs:int" />
+        <xs:attribute name="atom_index" type="xs:int" />
+        <xs:attribute name="species" type="xs:string" />
+        <xs:attribute name="position" type="TableRowOfCoord" />
+        <xs:attribute name="n" type="xs:int" />
+        <xs:attribute name="l" type="xs:int" />
+        <xs:attribute name="m" type="xs:int" />
+        <xs:attribute name="z" type="xs:int" />
+    </xs:complexType>
+
+    <xs:complexType name="TableOforbital_type_data">
+        <xs:sequence>
+            <xs:element name="item" type="ArrayOfTableRowOforbital_type_data" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="ArrayOfTableRowOforbital_type_data">
+        <xs:sequence>
+            <xs:element name="item" type="xs:decimal" minOccurs="1" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+
+    <xs:complexType name="matrix">
+        <xs:simpleContent>
+            <xs:extension base="xs:string"/>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <xs:complexType name="TableRowOfCoord">
+         <xs:sequence>
+            <xs:element name="x" type="xs:decimal" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="y" type="xs:decimal" minOccurs="1" maxOccurs="1"/>
+            <xs:element name="z" type="xs:decimal" minOccurs="1" maxOccurs="1"/>
+        </xs:sequence>
+   </xs:complexType>
+
+</xs:schema>
+

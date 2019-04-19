@@ -1,0 +1,15 @@
+&input
+    atom = 'X'
+    dft = 'LDA'
+    config = '[He] 2s1'
+    iswitch = 2
+/
+
+&test
+    file_pseudo = 't.UPF'
+    nconf = 1
+    configts(1) = '2s1'
+    ecutmin = 50
+    ecutmax = 300
+    decut = 50
+/

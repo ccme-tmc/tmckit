@@ -1,0 +1,284 @@
+#!/usr/bin/env python
+from ase import Atoms
+from ase.calculators.emt import EMT
+from ase.constraints import FixAtoms,FixedPlane
+from ase.optimize import QuasiNewton
+from ase.build import fcc111, add_adsorbate
+from ase.io import read, write
+from ase.calculators.vasp import Vasp
+import sys, os, shutil, glob, os.path
+import ase.calculators.vasp
+from ase_utils import *
+from vasp_utils_jh import *
+from math import *
+from ase.visualize import view
+from surf_utils import * 
+
+def show_help_info():
+    myname = sys.argv[0]
+    print "\n"+myname + ": a Python script to prepare or analyze the adsorption on bimetallic surfaces\n"
+    print "   Usage: " + os.path.basename(myname) + " [options]"\
+     + """
+    Options:
+    -h                       # display this help information
+    -hads  < h_ads=0>          # the height for the adsorbing atom 
+    -c     <composition=Ni>  # the composition=metal considered. It can be the name of a single metal, 
+                               or the name of two metals with a configuration indicator, e.g. Ni,Cu,<config>
+                               config can be: top, sub, mixtop, mixsub, bulk11, bulk13 
+    -fix   <fix_layers=2>    # fix the bottom layers indicated by fix_layers, 
+                               fix_layers=2 means that the two layers in the bottom are fixed 
+
+    -fixatom <fix_atom=-1>   # fix the adsorbing atom (fix_atom  = 0 ) in the adsorbate molecule or its z coordinate (fix_atom = 1)  
+
+    -latt  <latt>            #  the lattice constant(s) as a string of float numbers seperated by comma, 
+                               e.g. '3.4' or '2.51,4.07' 
+    -mode  <mode=0>          # mode == 0 --> view only 
+                                       1 --> create the VASP input files 
+                                       2 --> create the VASP input files and do the calculations 
+                                       3 --> read the results, and extract information 
+    -o <out_results=results.dat> 
+
+    -mol   <mol_name>        # molecule to be adsorbed 
+    -site  <site_ads=fcc>    # the site of absorption
+    -tag   <tag_info=''>     # the tag to the file name for additional information  
+    -size  <size_slab>       # the size of the slab, e.g. 3,3,4  for a four-layer 3x3 slab
+    -surf  <surf_type=fcc111>  # which surface 
+    -off   <offset>          # off-site, e.g. '1.0' or '0,0.5'
+    -rot   <rot_angle>       # rotate the molecule by the z-axis by 
+
+    -np    <nproc>           # the number of processes used for running the calculations
+    -vac   <vac_width=12.0>  # the width of the vacuum region
+    -kpt   <kpoints='4,4,1'> # the number of k-points 
+    -mcell <mol_cell=15.0,15.5,16.0>  # the unit cell for the calculation of the molecule 
+     
+    -ec    <encut=300.0>     # the ENCUT 
+    -xc    <xc=rpbe>         # xc name 
+    -ispin <ispin=2>         # ispin 
+    -ftol  <ftol=0.01>       # the force  convergence tolerance 
+    -etol  <etol=1.e-6>      # the energy convergence tolerance  
+    """
+    sys.exit(0)
+
+if len(sys.argv) == 1 or f_Getopt('-h',0,False): show_help_info()
+
+debug = f_Getopt('-D',0,False)
+
+info_cmd = ' '.join(sys.argv)
+# get the current working directory
+
+wdir = os.getcwd()
+
+if debug:
+    print "You are running ",info_cmd
+    print "wdir=", wdir
+
+composition   =  f_Getopt('-c',1,'Ni') 
+encut         =  f_Getopt('-ec',1, 300.0 ) 
+xc            =  f_Getopt('-xc',1, 'rpbe')
+ispin         =  f_Getopt('-ispin',1, 2  )
+ftol          =  f_Getopt('-ftol', 1, 0.01)
+etol          =  f_Getopt('-etol', 1, 1.e-6) 
+
+out_results   =  f_Getopt('-o', 1, 'results.dat') 
+
+h_ads         =  f_Getopt('-hads',1, 0.0) 
+latt          =  f_Getopt('-latt',1,'') 
+mode          =  f_Getopt('-mode',1, 0) 
+mol_name      =  f_Getopt('-mol',1, '') 
+nproc         =  f_Getopt('-np',1, 0 ) 
+site_ads      =  f_Getopt('-site',1, 'fcc') 
+tag_info      =  f_Getopt('-tag',1, '') 
+offset_s      =  f_Getopt('-off', 1, '') 
+rot_angle     =  f_Getopt('-rot',1,0.0) 
+size_slab_s   =  f_Getopt('-size',1,'2,2,2')
+surf_type     =  f_Getopt('-surf',1,'fcc111') 
+vac_width     =  f_Getopt('-vac', 1,12.0) 
+  
+kpoints_s     =  f_Getopt('-kpt', 1,'4,4,1')  
+fix_layers    =  f_Getopt('-fix', 1, 2) 
+fix_atom      =  f_Getopt('-fixatom',1,-1) 
+mol_cell_in   =  f_Getopt('-mcell',1,'15.0,15.5,16.0') 
+
+## read the result using the information from 
+#   -mol <mol_name> -surf <surf_name> -site <site_ads> 
+if mode == 3:
+    os.chdir(mol_name)
+    calc = Vasp(restart=True)
+    mol = calc.get_atoms()
+    e_mol = mol.get_potential_energy()
+    os.chdir(wdir)
+
+    surf_name = surf_type 
+    os.chdir(surf_name)
+    calc = Vasp(restart=True)
+    surf = calc.get_atoms()
+    e_surf = surf.get_potential_energy()
+    os.chdir(wdir)
+
+    surf_mol_name = surf_type + '-' + mol_name + '-' + site_ads + tag_info
+
+    os.chdir(surf_mol_name)
+    calc = Vasp(restart=True)
+    surf_mol = calc.get_atoms()
+
+    e_surf_mol = surf_mol.get_potential_energy()
+    e_ads = e_surf_mol - e_surf - e_mol 
+    os.chdir(wdir)
+
+    write(surf_mol_name+'.png',surf_mol)
+
+    print "#%20s %12s %12s %12s %12s" % ("surf_mol", 'e_surf', 'e_mol', 'e_surf_mol',"ads_energy")
+    print "%20s %12.6f %12.6f %12.6f  %12.3f" % (surf_mol_name, e_surf, e_mol, e_surf_mol, e_ads)
+
+    if not os.path.exists(out_results):
+        ofile = open(out_results,'w') 
+        ofile.write("#%20s %12s %12s %12s %12s\n" % ("surf_mol", 'e_surf', 'e_mol', 'e_surf_mol',"ads_energy")) 
+    else:
+        ofile = open(out_results,'a')
+    ofile.write("%20s %12.6f %12.6f %12.6f  %12.3f\n" % (surf_mol_name, e_surf, e_mol, e_surf_mol, e_ads))
+    ofile.close() 
+
+    sys.exit(0) 
+
+tmp = size_slab_s.split(',') 
+if len(tmp) < 3:
+    print "ERROR: wrong input for -size"
+    show_help_info()
+else:
+    size_slab = []
+    for i in range(3):
+        size_slab.append(int(tmp[i]))
+
+if offset_s == '':
+    offset = 0
+else:
+    tmp = offset_s.split(',') 
+    if len(tmp) == 1:
+        offset = float(tmp[0])
+    else:
+        offset = (float(tmp[0]), float(tmp[1]))
+
+kpoints = []
+tmp = kpoints_s.split(',') 
+for i in range(3):
+    kpoints.append(int(tmp[i]))
+
+mol = mol_set[mol_name][0]
+mol.rotate(rot_angle,'z') 
+
+mol_cell = []
+tmp = mol_cell_in.split(',') 
+for i in range(3):
+    mol_cell.append(float(tmp[i]))
+mol.set_cell(mol_cell)
+
+if h_ads == 0.0:
+    h_ads = mol_set[mol_name][1] 
+
+# create the bimetallic surface 
+surf, surf_name = create_bimetal_surf(composition, surf_type, size_slab, latt, fix_layers, vac_width)  
+
+# add the adsorbate 
+surf_mol = surf.copy()
+add_adsorbate(surf_mol, mol, h_ads, site_ads, offset = offset )
+surf_mol_name = surf_name.strip() + '-' +  mol_name.strip() + '-' + site_ads + tag_info
+
+if fix_atom >= 0:
+    nat_mol = len(mol) 
+    nat_all = len(surf_mol) 
+
+    if fix_atom == 0:
+        constr_atom = FixAtoms(indices=[nat_all - nat_mol])
+    else:
+        constr_atom = FixedPlane(nat_all - nat_mol, (0, 0, 1))
+
+    nlayers = max(surf.get_tags())
+    mask = [atom.tag > nlayers - fix_layers for atom in surf]
+    constr_bottom = FixAtoms(mask=mask)
+    surf_mol.set_constraint([constr_bottom,constr_atom])
+
+
+if mode == 0:
+    view(surf_mol)
+    sys.exit(0)
+
+### configure the calculator
+
+calc_mol = ase.calculators.vasp.Vasp(
+    xc=xc,
+    prec='Normal',
+    encut=encut,
+    ibrion=2,
+    nsw=500,
+    ispin=ispin,
+    ediff = etol,
+    ediffg=-ftol)
+calc_slab = ase.calculators.vasp.Vasp(
+    xc=xc,
+    prec = 'Normal',
+    encut = encut,
+    ibrion = 2,
+    nsw = 500,
+    ispin = ispin,
+    ediff  = etol, 
+    ediffg = -ftol,
+    kpts = kpoints)
+
+# calculate the energy of the adsorbate
+if mode == 1:
+    if not os.path.isdir(mol_name): 
+        ase_run_vasp(mol,      calc_mol,  mol_name,      init_only = True) 
+    if not os.path.isdir( surf_name):
+        ase_run_vasp(surf,     calc_slab, surf_name,     init_only = True)
+    if not os.path.isdir( surf_mol_name):
+        ase_run_vasp(surf_mol, calc_slab, surf_mol_name, init_only = True)
+        os.system('echo "%s" > %s/info '%(info_cmd,surf_mol_name.strip()))
+    sys.exit(0) 
+
+# set a local run_vasp.py if necessary
+ase_set_runvasp(nproc)
+
+e_mol  = ase_run_vasp(mol, calc_mol, mol_name) 
+e_surf = ase_run_vasp(surf, calc_slab, surf_name) 
+
+job_dir = surf_mol_name
+if not os.path.isdir(job_dir):
+    e_surf_mol = ase_run_vasp(surf_mol, calc_slab,job_dir) 
+
+else:
+    os.chdir(job_dir)
+    calc = Vasp(restart=True)
+    surf_mol = calc.get_atoms()
+    e_surf_mol = surf_mol.get_potential_energy()
+    os.chdir(wdir) 
+
+e_ads = e_surf_mol - e_surf - e_mol  
+
+# extract the coordinates of adsorbate on the surface 
+# get z_surf
+nat_tot = len(surf_mol) 
+nat_mol = len(mol) 
+
+z_surf = 0.0
+for atom in surf_mol:
+    if atom.symbol in composition:
+        z_surf= max(atom.z,z_surf)
+
+# get the scaled position of the adsorbing atom 
+pos_internal = surf_mol.get_scaled_positions() 
+xyz_C = pos_internal[nat_tot - nat_mol ]
+print "The scaled position of adsorbing atom: %6.3f %6.3f %6.3f"%(xyz_C[0],xyz_C[1],xyz_C[2])
+
+atom = surf_mol[ nat_tot - nat_mol  ]
+xyz_C = [atom.x,atom.y,atom.z]
+print "The position of adsorbing atom: %6.3f %6.3f %6.3f"%(xyz_C[0],xyz_C[1],xyz_C[2])
+
+print "The height of the adsorbing atom with respect to the surface:%8.3f"%(xyz_C[2]-z_surf)
+print "The coordidates of %s w.r.t. the adsorbing atom:"%(mol_name) 
+for ia in range(nat_tot - nat_mol, nat_tot):
+    atom = surf_mol[ia]
+
+    print "%-4s (%8.3f, %8.3f, %8.3f)"%(atom.symbol, atom.x-xyz_C[0], atom.y-xyz_C[1], atom.z-xyz_C[2])
+
+print "#%20s %12s %12s %12s %12s" % ("surf_mol", 'e_surf', 'e_mol', 'e_surf_mol',"ads_energy")
+print "%20s %12.6f %12.6f %12.6f  %12.3f" % (surf_mol_name, e_surf, e_mol, e_surf_mol, e_ads)

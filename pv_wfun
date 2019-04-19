@@ -1,0 +1,116 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from struct_utils import *
+from constants import *
+from vasp_utils_jh import vasp_read_pot
+from io_utils import *
+#from wfun_utils import *
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to get the work function (or ionization potential) from the VAPS output \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -h                # display this help information
+    -f <file >        # prefix for input and output
+    -d <x/y/[z]>        # the normal direction of the surface, the default is z
+    -w <aver_width >  # width to make averaging
+    -t <data_type>:   # VH/RHO
+    --debug           # set debug mode
+  Examples:
+  """
+  sys.exit(0)
+
+# default input and output format 
+
+def_dnorm = 'z'
+def_width = 0.0
+def_file = ''
+def_debug = False
+def_np = 4 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+dnorm = f_Getopt('-d',1,'z' )
+width = f_Getopt('-w',1,0.0 ) 
+file  = f_Getopt('-f',1,'LOCPOT' ) 
+np    = f_Getopt('-n',1,4   ) 
+type  = f_Getopt('-t',1,'VH') 
+
+
+vh,nxyz,latt_vec = vasp_read_pot(file)
+
+(nx,ny,nz) = nxyz
+print " nx,ny,nz=",nx,ny,nz
+
+if dnorm == 'x':
+  nd = nx
+  vd = latt_vec[0]
+elif dnorm == 'y':
+  nd = ny
+  vd = latt_vec[1]
+elif dnorm == 'z':
+  nd = nz
+  vd = latt_vec[2]
+elif dnorm == '0':
+  nd = 1
+  vd = [0.0,0.0,0.0]
+else:
+  print "ERROR: unsupported option for dnorm= ",dnorm
+
+nsum = nx*ny*nz/nd
+
+vd0 = []
+for i in range(nd): vd0.append(0.0)
+
+ip=0
+vsum=0.0
+for iz in range(nz):
+  for iy in range(ny):
+    for ix in range(nx):
+      if   dnorm == 'x': vd0[ix] += vh[ip]
+      elif dnorm == 'y': vd0[iy] += vh[ip]
+      elif dnorm == 'z': vd0[iz] += vh[ip]
+      else: vd0[0] += vh[ip]
+      ip += 1
+
+for i in range(nd): vd0[i] = (vd0[i]/nsum) 
+print 'Number of original data:',nd
+
+if nd == 1:
+  print "Averaged electrostatic potetial= %12.4f"%(vd0[0])
+  sys.exit(0)  
+
+ld = sqrt(vd[0]**2+vd[1]**2+vd[2]**2)
+vd0.append(vd0[0])
+nd += 1
+
+hd = ld/(nd-1)
+xd0 = []
+for i in range(nd): xd0.append(i*hd)
+
+fname = file+'-'+type+'-wfun'
+
+print "Original data after xy averaging is written to ",fname+"0.dat"
+
+ofile = open( fname+"0.dat",'w') 
+for i in range(len(xd0)):
+  ofile.write('%12.6f %12.6f \n' %(xd0[i]-ld/2,vd0[i]))
+ofile.close()
+
+print "V0(z=0  )= %12.4f "%vd0[0]  
+
+if width > 0.0: 
+  print 'Number of interpolated data:',np  
+  np = (nd-1)*np+1   
+  xd,vd,vd0_intp = f_Smooth_Spline(xd0,vd0,width,ld,np)
+  print "Smoothed data is written to ",fname+".dat"
+  ofile = open( fname+".dat",'w') 
+  for i in range(len(xd)):
+    ofile.write('%12.6f %12.6f %12.6f \n' %(xd[i]-ld/2,vd[i],vd0_intp[i]))
+  ofile.close()
+
+  print "V(z=0  )= %12.4f "%vd[0]  
+  print "V(z=1/2)= %12.4f "%vd[np/2] 
+

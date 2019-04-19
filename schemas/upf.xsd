@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <!-- This is read only because we do not parse PP_NLCC and so on -->
+    <xs:element name="UPF" type="UPFv2"/>
+
+    <xs:complexType name="UPFv2">
+        <xs:sequence>
+            <xs:attribute name="version" type="xs:string"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="PP_INFO" type="xs:string"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="PP_HEADER" type="PPHeader"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="PP_MESH" type="PPMesh"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_NLCC" type="xs:string"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_LOCAL" type="xs:string"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_NONLOCAL" type="PPNonlocal"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_PSWFC" type="PPPswfc"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_RHOATOM" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="PPHeader">
+        <xs:simpleContent>
+            <xs:extension base="xs:string">
+                <xs:attribute name="author" type="xs:string"/>
+                <xs:attribute name="date" type="xs:string"/>
+                <xs:attribute name="comment" type="xs:string"/>
+                <xs:attribute name="element" type="xs:string"/>
+                <xs:attribute name="pseudo_type" type="xs:string"/>
+                <xs:attribute name="relativistic" type="xs:string"/>
+                <xs:attribute name="is_ultrasoft" type="xs:string"/>
+                <xs:attribute name="is_paw" type="xs:string"/>
+                <xs:attribute name="is_coulomb" type="xs:string"/>
+                <xs:attribute name="has_so" type="xs:string"/>
+                <xs:attribute name="has_wfc" type="xs:string"/>
+                <xs:attribute name="has_gipaw" type="xs:string"/>
+                <xs:attribute name="paw_as_gipaw" type="xs:string"/>
+                <xs:attribute name="core_correction" type="xs:string"/>
+                <xs:attribute name="functional" type="xs:string"/>
+                <xs:attribute name="z_valence" type="xs:decimal"/>
+                <xs:attribute name="total_psenergy" type="xs:decimal"/>
+                <xs:attribute name="wfc_cutoff" type="xs:decimal"/>
+                <xs:attribute name="rho_cutoff" type="xs:decimal"/>
+                <xs:attribute name="l_max" type="xs:int"/>
+                <xs:attribute name="l_max_rho" type="xs:int"/>
+                <xs:attribute name="l_local" type="xs:int"/>
+                <xs:attribute name="mesh_size" type="xs:int"/>
+                <xs:attribute name="number_of_wfc" type="xs:int"/>
+                <xs:attribute name="number_of_proj" type="xs:int"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+
+    <xs:complexType name="PPMesh">
+        <xs:sequence>
+            <xs:attribute name="dx" type="xs:decimal"/>
+            <xs:attribute name="mesh" type="xs:int"/>
+            <xs:attribute name="xmin" type="xs:decimal"/>
+            <xs:attribute name="rmax" type="xs:decimal"/>
+            <xs:attribute name="zmesh" type="xs:decimal"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="PP_R" type="xs:string"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="PP_RAB" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="PPNonlocal">
+        <xs:sequence>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_BETA.1" type="PsWaveFuncNL"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_BETA.2" type="PsWaveFuncNL"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_BETA.3" type="PsWaveFuncNL"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_BETA.4" type="PsWaveFuncNL"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_BETA.5" type="PsWaveFuncNL"/>
+            <xs:element minOccurs="1" maxOccurs="1" name="PP_DIJ" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="PPPswfc">
+        <xs:sequence>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_CHI.1" type="PsWaveFunc"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_CHI.2" type="PsWaveFunc"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_CHI.3" type="PsWaveFunc"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_CHI.4" type="PsWaveFunc"/>
+            <xs:element minOccurs="0" maxOccurs="1" name="PP_CHI.5" type="PsWaveFunc"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="PsWaveFunc">
+        <xs:simpleContent>
+            <xs:extension base="xs:string">
+                <xs:attribute name="type" type="xs:string"/>
+                <xs:attribute name="size" type="xs:int"/>
+                <xs:attribute name="columns" type="xs:int"/>
+                <xs:attribute name="index" type="xs:int"/>
+                <xs:attribute name="label" type="xs:string"/>
+                <xs:attribute name="l" type="xs:int"/>
+                <xs:attribute name="occupation" type="xs:decimal"/>
+                <xs:attribute name="n" type="xs:int"/>
+                <xs:attribute name="pseudo_energy" type="xs:decimal"/>
+                <xs:attribute name="cutoff_radius" type="xs:decimal"/>
+                <xs:attribute name="ultrasoft_cutoff_radius" type="xs:decimal"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <xs:complexType name="PsWaveFuncNL">
+        <xs:simpleContent>
+            <xs:extension base="xs:string">
+                <xs:attribute name="type" type="xs:string"/>
+                <xs:attribute name="size" type="xs:int"/>
+                <xs:attribute name="columns" type="xs:int"/>
+                <xs:attribute name="index" type="xs:int"/>
+                <xs:attribute name="label" type="xs:string"/>
+                <xs:attribute name="angular_momentum" type="xs:int"/>
+                <xs:attribute name="cutoff_radius_index" type="xs:int"/>
+                <xs:attribute name="cutoff_radius" type="xs:decimal"/>
+                <xs:attribute name="ultrasoft_cutoff_radius" type="xs:decimal"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+</xs:schema>
+        
+
+

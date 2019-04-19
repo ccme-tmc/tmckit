@@ -1,0 +1,61 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from struct_utils  import *
+from constants     import *
+from io_utils      import *
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to (re)set parameters in the GAP2 input  \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -h                   # display this help information
+    -v <name=v[;...]>          # set the variable with a  value
+       name: barcevtol/emaxpol/eminpol/mb_Q/mb_lblm,mb_lmbm
+                      
+                             
+  Examples:
+  """
+  sys.exit(0)
+
+# default input and output format 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+v_inp = f_Getopt('-v',1,'')
+
+print "v_inp=",v_inp 
+gwinp = 'gw.inp'
+
+if not v_inp == '':
+  vars_list = v_inp.split(';') 
+  print 'vars_list=',vars_list 
+  nv = len(vars_list) 
+  for i in range(nv):
+    tmp = vars_list[i].split('=') 
+
+    v_name = tmp[0]
+    v_val  = tmp[1]
+
+    if v_name == 'barcevtol' or v_name == 'emaxpol' or v_name =='eminpol' :
+      v_tag = v_name 
+      io_set_val(gwinp,v_tag,v_val)
+
+    elif v_name == 'mb_Q':
+      v_tag = 'MixBasis'
+      pos = '1 1'
+      io_set_val(gwinp,v_tag,v_val,pos) 
+    elif v_name == 'mb_lmbm':
+      v_tag = 'MixBasis'
+      pos = '2 1'
+      io_set_val(gwinp,v_tag,v_val,pos)
+    elif v_name == 'mb_lblm':
+      v_tag = 'MixBasis'
+      pos = '2 3'
+      io_set_val(gwinp,v_tag,v_val,pos)
+    else:
+      print "ERROR -- unsupported parameter tag:"+v_name  
+      
+
+ 

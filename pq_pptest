@@ -1,0 +1,531 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import os,sys,copy,math,shutil,subprocess
+from argparse import ArgumentParser
+from qesp_utils import QESP_ld1_input,QESP_ld1_output
+from chem_utils import f_Element_Z_to_Symbol,f_Element_Symbol_to_Z,element_configuration
+import common_caseutil
+from common_caseutil import debug_print,f_env_RunMpirunCommand
+from common_math import f_Data_AvgAndMeanSquareError
+
+common_caseutil.logLevel = 1
+
+# semi-core states order 
+listSemicoreOrbital = [
+'1s',
+'2s',
+'2p',
+'3s',
+'3p',
+'3d',
+'4s',
+'4p',
+'4d',
+'5s',
+'5p',
+'4f',
+'5d',
+'6s',
+'6p',
+'7s',
+'5f',
+'6d',
+'7p'
+]
+
+listCommonOxidation = [
+[0,0],
+[-1,1],
+[0,0],
+[-1,1],
+[0,2],
+[-3,3],
+[-4,4],
+[-3,5],
+[-2,2],
+[-1,1],
+[0,0],
+[-1,1],
+[0,2],
+[-3,3],
+[-4,4],
+[-3,5],
+[-2,6],
+[-1,7],
+[0,0],
+[-1,1],
+[0,2],
+[0,3],
+[0,4],
+[-1,5],
+[-1,6],
+[-1,7],
+[-1,4],
+[-1,3],
+[-1,3],
+[-1,3],
+[0,2],
+[-1,3],
+[-4,4],
+[-3,5],
+[-2,6],
+[-1,7],
+[0,0],
+[-1,1],
+[0,2],
+[0,3],
+[0,4],
+[-1,5],
+[-1,6],
+[-1,7],
+[-1,4],
+[-1,3],
+[-1,3],
+[-1,3],
+[0,2],
+[-1,3],
+[-4,4],
+[-3,5],
+[-2,6],
+[-1,7],
+[0,0],
+[-1,1],
+[0,2],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,4],
+[-1,5],
+[-1,6],
+[-1,7],
+[-1,4],
+[-1,3],
+[-1,3],
+[-1,3],
+[0,2],
+[-1,3],
+[-4,4],
+[-3,5],
+[-2,6],
+[-1,7],
+[0,0],
+[-1,1],
+[0,2],
+[0,3],
+[0,4],
+[0,5],
+[0,6],
+[0,7],
+[0,8],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3],
+[0,3]
+]
+
+def f_Orbital_GetDesc(listOrbital):
+    '''
+    Get a string used to describe orbital like "4s2 3d0"
+    '''
+    stDesc = ""
+    for Conf in listOrbital:
+        if ( isinstance(Conf,str)):
+            stDesc += "[%s]" % Conf
+        else:
+            stDesc += " %s%d " % ( Conf[0],Conf[1])
+    return stDesc.strip()
+
+def f_GetAtomMaxOxidationNumber(nZ):
+    '''
+    Get common max oxidation number of specific atom ( including minimum and maximum ) 
+    '''
+    return listCommonOxidation[nZ]
+    
+
+def f_GetAtomConfiguration(nZ,nSemi=-1,bIncludeVirtual=False):
+    '''
+    Get a list like ['3d','2'] for given core charge nZ
+    Valence electrons are defined as all electron with highest n among all orbitals with the same l, except f14
+    i.e. Ga val:4s2 4p1 , semi(1): 3d10 4s2 4p1, auto:val for A series and semi for B series. Note: if d exists, f14 will never be semi
+    :param nZ: core charge
+    :param bIncludeVirtual: like ['4p','0'] for Fe
+    :param nSemi: semi orbital count; -1 means auto; for III-VIIA sp-element, 1 means (n-1)d, for d-metal, 1 means (n-1)d, 2means (n-1)p, 3 means (n-1)s; for f-metal, 1 means (n-1)d, 2means (n-2)f, 3 means (n-1)p, 4means (n-1)s
+    :returns: two value, the first is a description string and the second is a list of pp-related states. The orbital order follows listOrbital (semi-core order)
+    '''
+    dicQN = {'s':0,'p':1,'d':2,'f':3}
+    
+    #Gather information
+    listConf = element_configuration[nZ]
+    nElectron = 0
+    nMaxN = 0 #Maximum of main quantum number in configuration
+    for Conf in listConf:
+        if ( not isinstance(Conf,str)):
+            nMaxN = Conf[0][0] if Conf[0][0] > nMaxN else nMaxN
+    
+    #if ( len(listConf) == 1 ): #H and He ( no core )
+    #    return listConf,listConf    
+    if ( listConf[0] == ""): #H and He ( no core)
+        return listConf,listConf
+
+
+
+    #Detect default semi core count
+    if ( nSemi == -1):
+        #Sum electron count
+        Conf1 = listConf[1][0]
+        #alkali
+        if ( Conf1[-1] == 's' ):
+            nSemi = 0
+        else:
+            nLevel = dicQN[Conf1[1]] + int(Conf1[0])
+            if ( nLevel >= 7):
+                if ( nElectron <= 17 ):
+                    nSemi = 2
+                elif ( nElectron <= 26 ):
+                    nSemi = 1
+            if ( nLevel >= 5):
+                if ( nElectron <= 12 ):
+                    nSemi = 1
+        print("Autodetect semi orbital count : %d" % nSemi)
+    #Generate orbital list for pp
+    listPPOrbital = [str(nMaxN)+'p',str(nMaxN)+'s']
+    nIndex = listSemicoreOrbital.index(str(nMaxN)+'s')
+    for i in range(1,nSemi+1):
+        listPPOrbital.append(listSemicoreOrbital[nIndex-i])
+    listPPOrbital.reverse()
+    #Expand conf
+    listAEConf = copy.deepcopy(listConf)
+    #while ( isinstance(listAEConf[0],str)):
+    while ( listAEConf[0] != ""):
+        listAEConf = element_configuration[f_Element_Symbol_to_Z(listAEConf[0])] + listAEConf[1:]
+        debug_print(3,listAEConf)
+    debug_print(1,"Full electron configuration:",listAEConf)
+    #Generate configuration ( copy electron count from atom configuration's orbital
+    
+    listPPConf = []
+    debug_print(1,"Oribitals in PP:",listPPOrbital)
+    bFull = True
+    for PPOrbital in listPPOrbital:
+        bAdded = False
+        for AtomOrbital in listConf:
+            if ( AtomOrbital[0] == PPOrbital):
+                bFull = False #Mark we meet the valence
+                listPPConf.append(AtomOrbital)
+                bAdded = True
+                break
+        if ( not bAdded ):
+            if (bFull): #Fully occupied semi-core
+                listPPConf.append([PPOrbital,(dicQN[PPOrbital[1]]*2+1)*2])
+            else: #Higher empty
+                listPPConf.append([PPOrbital,0])
+                listConf.append([PPOrbital,0])
+                
+    return listConf,listPPConf
+    
+
+def QESP_CreatePP(nZ,nMode=None):                
+    '''
+    Create a ld1.x input file for pp test according to core charge
+    :param nZ: core charge
+    :param nMode: preserved
+    '''
+    qIn = QESP_ld1_input(os.path.join(os.path.dirname(__file__),"template-qe/ld1.in"))
+    listAEOrbital,listOrbital = f_GetAtomConfiguration(nZ)
+    debug_print(1,"PP Configuration:",listOrbital)
+    qIn.zed = nZ
+    qIn.config = f_Orbital_GetDesc(listAEOrbital)
+    qIn.title = f_Element_Z_to_Symbol(nZ)
+    qIn.dft='LDA'
+    
+    #Do all-electron calculation
+    aeIn = QESP_ld1_input(os.path.join(os.path.dirname(__file__),"template-qe/ld1-ae.in"))
+    aeIn.title = qIn.title
+    aeIn.config = qIn.config
+    aeIn.zed = nZ
+    aeIn.rmax = 100 + nZ**0.5*50
+    aeIn.dft = qIn.dft
+
+    aeIn.WriteToFile("ae.in")
+    f_env_RunMpirunCommand("ld1.x < ae.in > ae.out",1)
+    #qIn.AddValue('test')
+    aeOut = QESP_ld1_output("ae.out").listConf[0]
+    
+    #Create PP generation input
+    dic_n = {'s':0,'p':1,'d':2,'f':3}
+    qIn.PPCard = []
+    for Orbital in listOrbital:
+        for OrbitalAE in aeOut.listAEOrbital: #find AE orbital in AE output
+            if ( OrbitalAE[2].lower() == Orbital[0].lower() ):
+                l = dic_n[OrbitalAE[2][1].lower()]
+                rcut = OrbitalAE[5]*0.85
+                if ( rcut < OrbitalAE[7]):
+                    rcut  = OrbitalAE[7] + 0.01
+                PPOrbital = [OrbitalAE[2].upper(),l+1,l,OrbitalAE[3],0.0,rcut,rcut,0.0]
+                break
+        qIn.PPCard.append(PPOrbital)
+    qIn.lloc = qIn.PPCard[-1][2]
+    qIn.pseudotype = 2
+    if ( qIn.zed >= 19 ):
+        qIn.nlcc = True
+    else:
+        qIn.nlcc = False
+    stPPFileName = "ppc"
+    qIn.file_pseudopw = stPPFileName+".UPF"
+    qIn.WriteToFile(stPPFileName + ".in")
+    f_env_RunMpirunCommand("ld1.x < %s.in &> %s.out" % (stPPFileName,stPPFileName),1)
+    #stErr = commands.getoutput("grep -a \"phi has nodes\" %s" % stPPFileName).strip()
+    bTrySolved = False
+    ppOut = QESP_ld1_output()
+    while ( not ppOut.bOK ):
+        ppOut = QESP_ld1_output(stPPFileName+".out")
+        if ( not ppOut.bOK):
+            if ( "phi has node" in ppOut.stError and (not bTrySolved)):
+                print("Error: phi has nodes before r")
+                print("Recreate input file...")
+                qIn.AddValue("inputp","rho0",0.001)
+                qIn.WriteToFile(stPPFileName + ".in")
+                f_env_RunMpirunCommand("ld1.x < %s.in &> %s.out" % (stPPFileName,stPPFileName),1)
+            else:
+                print("Error: Cannot solve problem in PP create. ")
+                return    
+
+def QESP_ReadUPFInfo(filename):
+    '''
+    Read generic information from UPF file
+    :return: Element name and functional
+    '''
+    st = subprocess.Popen(["grep", "-ai","-m","1", "element", filename],stdout=subprocess.PIPE).communicate()[0]
+    if ( ":" in st):
+        st_element = st.split()[-1]
+    else:
+        st_element = st.split()[0]
+    st = subprocess.Popen(["grep", "-ai","-m","1", "functional", filename],stdout=subprocess.PIPE).communicate()[0]
+    if ( ":" in st):
+        st_functional = st.split()[-1]
+    else:
+        st_functional = st.split()[-3]
+    return st_element,st_functional
+    
+def QESP_HasGhostBand(Conf):
+    '''
+    Detect whether ghost band exists
+    '''
+    result=False
+    if ( Conf.listPPTest == None):
+        raise RuntimeError,"Ghost band detection needs Bessel basis set test data"
+    for Orbital in Conf.listPPTest[-1][1:]: #enumerate pp orbital of 
+        #find orbital in ae calculation
+        for Orbital2 in Conf.listPPDiff:
+            if ( Orbital2[1] == Orbital[0]):
+                if ( abs(Orbital[1]-Orbital2[5]) > abs(Orbital[2]-Orbital2[5])):
+                    result= True
+                    break
+                break
+    return result 
+                    
+
+def QESP_CreatePPTest(pathname_upf,stElement=None,stFunctional=None,n_semi=-1,n_semifix=0):
+    '''
+    Create a ld1.x input file for pp test according to core charge
+
+    :param n_semi: Number of semicore shells included. By default only outmost sp are valence. -1 means automatically.
+    :param n_semifix: Number of shells fixed as fully occupied.
+    '''
+    filename_upf = os.path.split(pathname_upf)[1]
+    
+    stFolder = "test"
+    if ( not os.path.exists(stFolder)):
+        os.mkdir(stFolder)
+    shutil.copy(pathname_upf, os.path.join(stFolder,filename_upf))
+    os.chdir(stFolder)
+
+    
+    #
+    if ( stElement == None or stFunctional == None):
+        stElement,stFunctional = QESP_ReadUPFInfo(filename_upf)
+        print("Read upf: Element %s, xc functional %s" % (stElement,stFunctional))
+    
+    nZ = f_Element_Symbol_to_Z(stElement)
+    listAEOrbital,listPPOrbital = f_GetAtomConfiguration(nZ,n_semi)
+    
+    #charge range
+    (nChargeMax,nChargeMin) = f_GetAtomMaxOxidationNumber(nZ)
+    nChargeMax = -nChargeMax - 1
+    nChargeMin *= -nChargeMin + 1
+    nTotalChargeMax = 0 if nChargeMax > 0 else nChargeMax
+    nTotalChargeMin = -3 if nChargeMin < -3 else nChargeMin
+    #print(nChargeMax,nChargeMin)
+    
+
+    #add configuration
+#Add fixed orbitals 
+    listSet = [ copy.deepcopy(listPPOrbital[:n_semifix]) ]
+    if (n_semifix > 0):
+        print("Fixed semi-core states:",listSet[0])
+    
+    nEleOrg = sum([x[1] for x in listSet[0]])
+    for Orbital in listPPOrbital[n_semifix:]:
+        nEleOrg += Orbital[1]
+        listSetNew = []
+        for aSet in listSet: #extend all set by one orbital * x kind of type
+            for i in range(-5,3):
+                OrbitalNew = copy.deepcopy(Orbital)
+                OrbitalNew[1] += i
+                listSetNew.append(aSet + [OrbitalNew])
+        listSet  = listSetNew
+    #delete bad configuration
+    debug_print(3,listSet)
+    listSetGood=[copy.deepcopy(listPPOrbital)] #this is original data
+    for aSet in listSet:
+        bOK = True
+        bNoP = False
+        nEle = 0
+        st_reason = None
+        for Orbital in aSet:
+            if ( Orbital[1] < 0 ): #negative electron count
+                bOK = False
+                st_reason = "Negative occ. num."
+                break
+            if (( Orbital[0][1] == 's' and Orbital[1] > 2 ) or (Orbital[0][1] == 'p' and Orbital[1] > 6) or (Orbital[0][1] == 'd' and Orbital[1] > 10) or ( Orbital[0][1] == 'f' and Orbital[1] > 14 )): # maximum electron count
+                bOK = False
+                st_reason = "Too many electrons"
+                break
+            if ( Orbital[0][1] =='d' and Orbital[1] != 10 ):#will not occupy np orbital more than one if (n-1)d and (n-2)f are not fully occupied
+                bNoP = True
+            if ( Orbital[0][1] == 'p' and Orbital[1] > 1 and bNoP  ): #in occupation order, np is always after (n-1)d
+                bOK = False
+                st_reason = "np>1 when (n-1)d is not full"
+                break
+            nEle += Orbital[1]
+        if ( nEle - nEleOrg < nTotalChargeMin or  nEle-nEleOrg > nTotalChargeMax ):
+            bOK = False
+            st_reason = "Too many charges"
+    
+        if ( bOK == True ):
+            debug_print(3,"Good configuration",aSet)
+            listSetGood.append(aSet)
+        else:
+            debug_print(1,"Bad configuration",aSet,st_reason)
+
+
+#   debug_print(1,"Test configurations:","\n".join([" ".join(["".join([str(z) for z in y]) for y in x]) for x in listSetGood]))
+    debug_print(1,"Test configurations:","\n".join([f_Orbital_GetDesc(x) for x in listSetGood]))
+    
+    #test pp
+    qTestIn = QESP_ld1_input(os.path.join(os.path.dirname(__file__),"template-qe/ld1-test.in"))
+    qTestIn.dft = stFunctional
+    qTestIn.atom = stElement
+    qTestIn.config = f_Orbital_GetDesc(listAEOrbital)
+    qTestIn.file_pseudo=filename_upf
+    #qTestIn.configts = [0,f_Orbital_GetDesc(listSetGood[0]),f_Orbital_GetDesc(listSetGood[1])]
+    #qTestIn.configts = [ f_Orbital_GetDesc(x) for x in listSetGood]
+    #qTestIn.configts.insert(0,0)
+    qTestIn.nconf = len(qTestIn.configts) - 1
+
+
+    dStdGood = 0.002
+    dStdWarning = 0.01
+    dStdError = 0.1
+    listErrCount = [0,0,0,0,0,0,0]
+    ld1outStd = None
+    listErrData = []
+    for i,Set in enumerate(listSetGood):
+        qTestIn2 = copy.deepcopy(qTestIn)
+        qTestIn.configts = [0,f_Orbital_GetDesc(Set)]
+
+        print("Configuration: %s" % qTestIn.configts[1])
+        qTestIn.nconf = 1
+        stTestName = str(i)
+        qTestIn.WriteToFile(stTestName+".in")
+        f_env_RunMpirunCommand("ld1.x < %s.in &> %s.out" % (stTestName,stTestName),1)
+        ppOut = QESP_ld1_output(stTestName+".out")
+
+        if ( i == 0):
+            ld1outStd = ppOut
+            if ( not ppOut.bOK):
+                print("These test cannot complete on normal atom configuration, testing stopped")
+                return
+            continue
+
+        if ( not ppOut.bOK ):
+            print("\33[31mError at %s : %s\33[m" % (qTestIn.configts[1],ppOut.stError))
+            listErrCount[0] += 1
+            continue
+        Conf = ppOut.listConf[0]
+        bWarningLarge = False
+        bWarning = False
+        bGood = True
+        for j in range(0,len(Conf.listPPDiff)+1): #Compare AE and PS eigenvalue differences in atom calculation
+            if ( j != 0):
+                Orbital = Conf.listPPDiff[j-1]
+                dDiff = abs(Orbital[6])
+            else:
+                dDiff = Conf.dEtotAbsoluteDiff-ld1outStd.listConf[0].dEtotAbsoluteDiff
+            listErrData.append(dDiff)
+            if ( dDiff > dStdError):
+                bWarningLarge = True
+            elif ( dDiff > dStdWarning):
+                bWarning = True
+            elif ( dDiff > dStdGood ):
+                bGood = False
+            if ( j == 0):
+                print("Total energy AE/PS diff vs Std conf %f" % dDiff ,end=" " )
+            else:
+                print(" %2s %9.5f " % (Orbital[2].lower(),Orbital[6]),end=" " )
+        print("")
+        if ( QESP_HasGhostBand(Conf)):
+            print("\33[31mError: Ghost band exists!!\33[m")
+            listErrCount[1] += 1
+        elif ( bWarningLarge ):
+            print("\33[31mWarning: Very large deviation!!\33[m")
+            listErrCount[2] += 1
+        elif ( bWarning):
+            print("\33[31mWarning: large deviation!\33[m")
+            listErrCount[3] += 1
+        elif ( bGood ):
+            print("Very good consistency!")
+            listErrCount[5] += 1
+        else:
+            print("Seems usable.")
+            listErrCount[4] += 1
+    print("")
+    listErrCount[6] = f_Data_AvgAndMeanSquareError(listErrData)[1]
+    print("Summary: Error %d, Ghost Band %d, too large %d, a little large %d, usable %d, very good %d, MSE %f" % tuple(listErrCount))
+
+
+def Main(ArgList):
+    description = "Automatically test specific atoms with different configurations. The element and the functional can be read from PP or specified. This is used as ld1.x does not support configits > 10."
+    parser = ArgumentParser(description=description)
+    parser.add_argument('filename',type=str,help="The UPF file")
+    parser.add_argument("-e",dest="element",help="The name of element. Automatically read from UPF if not specified.")
+    parser.add_argument("-f",dest="func",help="Functional used in calculation. Automatically read from UPF if not specified.")
+    parser.add_argument("--semi",dest="semi",type=int,default=-1,help="How many semi-core shells included in the valence.")
+    parser.add_argument("--semifix",dest="semifix",type=int,default=0,help="How many orbitals are kept as fully occupied in the tests, as to fix 3s3p to test Ti pp with semicore 3s3p")
+
+    args = parser.parse_args()
+	
+    QESP_CreatePPTest(args.filename,args.element,args.func,args.semi,args.semifix)
+
+if __name__ == "__main__":
+    #print(f_GetAtomConfiguration(24))
+    #print(QESP_CreatePPTestInput(22).listAEOrbital)
+    #QESP_CreatePP(22)
+    #QESP_CreatePPTest("ppc.UPF","C","PBE")
+	Main(sys.argv)

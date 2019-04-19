@@ -1,0 +1,271 @@
+#!/usr/bin/env python
+
+from w2k_caseutil import *
+from w2k_utils import * 
+import os,sys
+import re,time,datetime
+from common_caseutil import f_Split_EnumerateRangeString
+from py_utils import EmptyFormatter
+ 
+def f_timedelta_formatter(td):
+    '''
+    Format a timedelta object to string
+    '''
+    st = ""
+    if ( td.days > 0):
+        st += "%i d" % td.days
+    h,m = divmod(td.seconds,3600)
+    m,s = divmod(m,60)
+    st += "%2ih %2im %2is" %( h,m,s)
+    return st
+
+def w2k_ChangeStructure(aInputCase,stType,dChange):
+    '''
+    Generate WIEN2k case with specified parameter
+    :param aInput: the Wien2K case object
+    :param stType: how to change the lattice, possible options include vol (note the change percent is applied to each axis)
+    :param dChange: the precent to be changed. For 10%, use 0.1
+    '''
+    dC = 1+dChange
+    aCase = copy.deepcopy(aInputCase)
+    aStructure = aCase.aStructure
+    if ( stType == "vol"):
+        aStructure.LatticeParameter = [ x * dC for x in aStructure.LatticeParameter]
+    else:
+        return None
+    return aCase
+
+
+def w2k_ScanStructure(stInputDir,stOutputDir,dicPara,bRun,stCommand,bNewIn0=False,bShift=False):
+    '''
+    Generate a series of structure and perform calculation
+    
+    :params bNewIn0: use case.in0_std genereated by dstart to replace in0 in each step 
+    '''
+    OldCase=Wien2K_Case()
+    
+    #store original case
+    OldCase.SaveCase(stInputDir,'_init')
+    
+    #prompt new structure genereate schema
+    if ( bNewIn0):
+        print("New FFT Schema: regenerate in0 by dstart")
+    else:
+        print("New FFT Schema: keep old in0")
+    if ( OldCase.a_in0.stFFTMode == "IFFT"):
+        if ( OldCase.a_in0.arFFT[0] == -1):
+            print("Current FFT Mode: automatic in Wien2K (-1)")
+            if ( bNewIn0):
+                print("Warning: Use both dstart-regenerated fft parameter and automatic parameter")
+        else:
+            print("Current FFT Mode: fixed in Wien2K (-1)")
+            if ( bNewIn0):
+                print("Warning: FFT parameters keep the same in the whole process, may cause XCOPT3 problem")
+    else:
+        print("Current FFT Mode:No FFT specified")
+    
+    for aParaSet in dicPara:
+        #Built information string
+        stParaSummary = ""
+        for aNamePara in aParaSet:
+            stParaSummary += aNamePara[0] + "-" + str(aNamePara[1]) + "+"
+        stParaSummary = stParaSummary[:-1] #cut final "+"
+        #Build input content
+        stInfo ="New Job " + stParaSummary + " created at " + time.strftime("%Y-%m-%d %H:%M:%S") 
+        print(stInfo)
+        #Generate all structure
+        #listCase = [] # stored : [fChange,Case]
+        NewCase = copy.deepcopy(OldCase)
+        for stName,aPara in aParaSet:
+            if ( stName == "rkmax"):
+                NewCase.a_in1.fRKMax = float(aPara)
+                NewCase.WriteToFile(listPart=["in1"])
+            elif ( stName =="kp"):
+                #print(aPara)
+                if (isinstance(aPara,float)):
+                    aPara = str(int(aPara))
+                lkp =  [int(x) for x in aPara.split('x')]
+                if ( len(lkp) ==1 or len(lkp) ==3):
+                    w2k_CreateKPointList(lkp,bShift=bShift)
+                else:
+                    raise ValueError,"%s is not in the k-points format as total or axbxc" % aPara
+
+
+                #shutil.copy(OldCase.stCaseName+".klist",os.path.join(stInputDir,"%s_%s.klist"%(OldCase.stCaseName,stParaSummary)))
+            else: #Structure related
+                fChange = float(aPara) / 100.0 - 1.0
+                if ( stName =="tmdc"):
+                    NewCase = w2k_ChangeStructure_TMDC(NewCase,fChange)
+                    #Store a copy in stInputDir, and change working dir ( Current Dir )
+                elif ( stName =="c"):
+                    NewCase = w2k_ChangeStructure_TMDC(NewCase,fChange,False)
+                else:
+                    NewCase = w2k_ChangeStructure(NewCase,stName,fChange)
+                    if ( NewCase is None ):
+                        print("Unimplented options, nothing will be done")
+                        break
+                #NewCase.SaveCase(stInputDir,'_'+str(fChange),False,["struct","in0"],False)
+                NewCase.WriteToFile(listPart=["struct"])
+
+        aCase = NewCase
+
+        #print("New struct files have been created under %s" % stInputDir)
+        if (NewCase is None):
+            raise ValueError("Nothing to scan, exit.")
+        NewCase.SaveCase(stInputDir,'_'+stParaSummary,True)
+
+        if ( bRun):
+#Copy all changed files to the working directory
+#           for parent,dirnames,filenames in os.walk(stInputDir):
+#               for filename in filenames:
+#                   if ( stParaSummary in filename):
+#                       stName1 = os.path.join(stInputDir,filename)
+#                       stName2 = OldCase.stCaseName+os.path.splitext(filename)[1]
+#                       shutil.copy(stName1,stName2)
+#                       print("Copy %s to %s..." % (stName1,stName2))
+            print("Start calculation...")
+            time_start = datetime.datetime.now()
+            status,stOutput = commands.getstatusoutput("x dstart")
+            if ( bNewIn0):
+                shutil.copy(OldCase.stCaseName+".in0_std", OldCase.stCaseName+".in0")
+            status,stOutput = commands.getstatusoutput(stCommand)
+            time_end = datetime.datetime.now()
+            print("Time cost:%s" % f_timedelta_formatter(time_end-time_start) )
+            #print(stOutput)
+            #Save calculation result
+            #aCase[1].SaveCase(stOutputDir,'_'+str(aCase[0]),True,["dayfile"])
+#Dayfile is used to detect convergence
+#.vns is used by lapw1 ! if not present lapw1 can run but give false result !
+            NewCase.SaveCase(stOutputDir,'_'+stParaSummary,True,["dayfile","vns"])
+
+        #Restore original case
+        OldCase.RestoreCase(stInputDir, "_init", True)
+
+        
+
+
+def w2k_ReadScanResult(stWorkingDir="",stCaseName="",bCopy=False):
+    '''
+    Read all scf file with filename as casename_xxx.scf, and list the final energy and gap(if possible)
+    All scf without convergence will be list at last.
+    Also copy results to individual folders for later calculation, with subfolder name as its own casename
+    '''
+    if ( stCaseName == "" or stCaseName==None):
+        stCaseName = f_GetCaseName()
+    if ( stWorkingDir =="" or stWorkingDir == None):
+        stPath = os.getcwd()
+    else:
+        stPath = stWorkingDir
+    print("Scan result of %s in %s" % (stCaseName,stPath))    
+    list_stIndex = []
+    list_aSCF=[]
+    list_aDayfile=[]
+    list_ncIndex=[]
+    list_ncSCF=[]
+    bExist = False
+    aPattern = re.compile(stCaseName+'_(.*).dayfile\Z')
+    listFileName = os.listdir(stPath)
+    for stFileName in listFileName:
+        aMatch = re.match(aPattern,stFileName)
+        if ( aMatch != None):
+            bExist = True
+            stIndex = aMatch.group(1)
+            aSCF = Wien2K_File_scf(os.path.join(stPath,stCaseName+'_'+stIndex))
+            #aDayfile=Wien2K_File_dayfile(stCaseName+'_'+stIndex+".dayfile")
+            if ( aSCF.bConverge):
+                list_stIndex.append(stIndex)
+                list_aSCF.append(aSCF)
+            else:
+                list_ncIndex.append(stIndex)
+                #list_aDayfile.append(aDayfile)
+                list_ncSCF.append(aSCF)
+            if (bCopy): #Copy into a new folder with same folder name as case name
+                stSubName = os.path.join(stPath,"%s_%s" % (stCaseName,stIndex))
+                if (os.path.exists(stSubName)):
+                    print("Folder exists %s, files not saved..." % stSubName)
+                    continue
+                print("Create folder %s..." % stSubName)
+                os.mkdir(stSubName)
+                for stFileName2 in listFileName:
+                    if (stIndex in stFileName2):
+                        shutil.copy(os.path.join(stPath,stFileName2),os.path.join(stSubName,stFileName2))
+    if ( bExist):
+        print("Case\tEnergy\tGap\tFermi(eV)\n")
+        for i in range(0,len(list_stIndex)):
+            aSCF = list_aSCF[i]
+            print("%s\t%s\t%s\t%s" % (list_stIndex[i],aSCF.fEnergy,aSCF.fGap,aSCF.fFermi*Ry2eV))
+            #if ( aSCF.bConverge):
+            #    print("%s\t%s\t%s" % (list_stIndex[i],list_aSCF[i].fEnergy,list_aSCF[i].fGap))
+            #else:
+            #    print("%s\t not converge!" % list_stIndex[i])
+        if ( len(list_ncIndex) > 0):
+            print("SCF stop witout convergence:")
+        for i in range(0,len(list_ncIndex)):
+            stIndex = list_ncIndex[i]
+            #print("%s\t%s" % (stIndex,list_aDayfile[i].stError))
+            print("%s\t%s" % (stIndex,list_ncSCF[i].a_dayfile.stError))
+    else:
+        print("There is no .scf file of %s series, please check your settings" % stCaseName)
+    
+
+def Main(ArgList):
+    description ='''Scan multiple parameters in WIEN2K calculations.
+This script should be used in the working directory.
+Possible parameters are rkmax,kp,vol
+Example:
+    rkmax:6~9~1
+    kp:100,200,400
+'''
+    usage = '''
+%prog -r "PARAMETERS" 
+    Create input files and store them in ./Input directory.
+%prog -w,--w2k "WIEN2K COMMAND" --run -r "PARAMETERS" 
+    Create input files and run calculations. The results will be stored in the ./Output directory.
+%prog -s -c CASENAME 
+    Read calculated results in the current folder. Parameters and names are automatically detected from *.dayfile in the folder
+'''
+    parser = OptionParser(formatter=EmptyFormatter(),usage=usage,description=description)
+    parser.add_option("--run",dest="bRun",action="store_true",default=False,help="Execute wien2k command; If not used, only all struct file is generated")
+    #parser.add_option("-l","--latt",dest="stLatticeType",help="The variable parameter should be scanned")
+    parser.add_option("-c",dest="stCompound",default=None,help="The compound name(To convert from Wien2K, there must be a file Compoundname.struct")
+    parser.add_option("-s",dest="bShow",action="store_true",default=False,help="Show scanned results from SCF file of specific casename")
+    #parser.add_option("-v",dest="bVersion",action="store_true",default=False,help="Show python version")
+    parser.add_option("-w","--w2k",dest="stW2Kcommand",help="Custom w2k command for single point calculation")
+    parser.add_option("-r",dest="stPara",help="Scanning Parameter. Use ',' to seperate value, use a-b-c to define start~end~step cycle")
+    parser.add_option("--newin0",dest="bNewIn0",action="store_true",default=False,help="Regenerate in0 file in each step")
+    parser.add_option("--kshift",dest="nShift",default=-1,help="Shift k-points if possible in k-points scanning.0 for no shift and 1 for shift.")
+    parser.add_option("--osf",dest="bSingle",action="store_true",default=False,help="Save output of each calculation to an seperated folder with its casename to facilate post-processing")
+
+    (options,args) = parser.parse_args(ArgList)
+
+    if ( len(args) != 1 ):
+        parser.error("incorrect number of arguments.")
+       
+    if ( options.bShow):
+        if ( options.stCompound is None):
+            options.stCompound = f_GetCaseName()
+        w2k_ReadScanResult(stCaseName=options.stCompound,bCopy=options.bSingle)
+
+    else:
+        print("Calculation range:%s" % options.stPara)
+        #listPara = f_Split_RangeString(options.stPara)
+        dicPara = f_Split_EnumerateRangeString(options.stPara)
+        if (options.bRun and options.stW2Kcommand == None):
+            print("A Wien2k command must be specified by -w/--w2k option if --run is used")
+            sys.exit(1)
+#Warning if one wants to scan kp but kshift is not specified
+        nShift = int(options.nShift)
+        if ("kp" in [x[0] for x in dicPara] ):
+            if (nShift == -1):
+                raise ValueError("--kshift options must be specified if 'kp' is included")
+        w2k_ScanStructure("Input", "Output",dicPara,options.bRun,options.stW2Kcommand,options.bNewIn0,nShift == 1)
+        if ( options.bRun ):
+            print("Scan Complete. Original Case is restored.")
+            print("Scan summary:")
+            w2k_ReadScanResult(stWorkingDir="Output",stCaseName=options.stCompound,bCopy=options.bSingle)
+
+
+
+if __name__ == "__main__":
+    #print(sys.version)
+    Main(sys.argv)

@@ -1,0 +1,340 @@
+#!/usr/bin/env python
+
+import sys,os,shutil
+from constants import *
+from struct_utils  import *
+from atat   import *
+from xyz    import * 
+from mol    import *
+from siesta import *
+from w2k    import *
+from gau    import * 
+from qe     import * 
+from cif    import *
+from vasp   import *
+from latt_utils    import *
+from io_utils import *
+
+# default input and output format 
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to convert molecular/lattice structures between different format \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:  
+    --debug           # set debug mode
+    -h                # display this help information 
+    -d <dir>          # create new input files in <dir> 
+    -f <file >        # prefix for input and output
+    -i <input_format> # input format, available option:
+          info: create the structure directly in terms of the crystal information given by '-ci ...' 
+          w2k:         wien2k struct format  
+          vasp:        vasp POSCAR 
+          siesta_out : siesta STRUCT_OUT file 
+          siesta_xv:   SIESTA XV file (not implemented)
+          qe_out:      QE output (full name)    
+          g09out:      Gaussian output (full name) 
+          gjf :        Gaussian input job file  
+          xyz: xyz format 
+          mol: MDL MOL 
+           
+    -o <out_format >  # output format, available option:
+          none:   show the structure on the standard output 
+          atat:   ATAT format 
+          cif:    cif format (a highly simplified one) 
+          xyz:    XYZ format 
+          w2k:    wien2k struct, if " -i w2k ", create new struct with originally equivalent atoms treated as non-equivalenent 
+          aims:   FHI-aims geometry.in format
+          siesta: the structure part in the SIESTA fdf format
+          siesta-full: full fdf file with some default configuration 
+          gjf:    Gaussian job file 
+          qe:     quantum-espresso 
+          vasp:   VASP POSCAR 
+    -ci <crys_info>  # the information for the lattice as a string, e.g.
+             NaCl:Mg,O:4.2   wz:Zn,O:3.25,5.21,0.382
+                
+
+    -r < irot> # option to manipulate the molecule/crystal structure
+          -1 -- do nothing
+           0 -- shift so that the molecule is zero-centered    
+           1 -- (only valid for '-t c') shift by (sx,sy,sz) (see --shift) 
+    --shift <sx sy sz>  (default (0.5 0.5 0.5) 
+
+    -s <0/1/2/3> # sort atoms in the molecule in terms of one of the coordinate  
+
+    -t <m/c>    # molecule or crystal, 
+         if the input is w2k structure,the default is "c" (crystal),
+         otherwise the default is molecule  
+
+    -isc <iop_sc=0>  creat a supercell in a way controlled by iop_sc 
+                    mol_size_x/y/z  --> the extension of the molecule in x/y/z direction
+                    sc_size_x/y/z --> the size of supecell
+           0 --  default  
+           1 --  sc_size_x/y/z = sc_info[0/1/2]
+           2 --  sc_size_x/y/z = mol_size_x/y/z + 2*sc_info[0] 
+           3 --  sc_size_x/y/z = mol_size_x/y/z * sc_size[0]
+
+    -sc <sc_info>  the information needed to customize the supercell  
+    
+  Examples:
+    py_conv -f h2o -i xyz -o gjf     # convert the xyz format (h2o.xyz) to Gaussian input file (gjf) format (h2o.gjf)
+    py_conv -f h2o -i gjf -o siesta  # convert the gjf (e.g. generated from GaussView) to siesta fdf file 
+  """
+  sys.exit(0)
+
+def_inp = 'w2k'
+def_out = 'none'
+
+def_file = os.path.basename(os.getcwd())
+def_debug = False
+def_sort = 0 
+def_irot = -1 
+def_isc = 0 
+def_sc_ratio = 2.0
+def_dir = ""
+def_sc_bound = 4.0
+def_sc_size = [0.0,0.0,0.0] 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+inp = f_Getopt('-i',1,def_inp)
+out = f_Getopt('-o',1,def_out)
+file = f_Getopt('-f',1,def_file) 
+dir = f_Getopt('-d',1,def_dir) 
+irot = f_Getopt('-r',1,def_irot) 
+sort = f_Getopt('-s',1,def_sort) 
+shift = f_Getopt('--shift',3,[0.5,0.5,0.5])
+crys_info = f_Getopt('-ci',1,'')
+
+iop_sc = f_Getopt('-isc',1,def_isc)
+sc_info=[0.0,0.0,0.0]
+if iop_sc == 1 : 
+  sc_info[0:2] = f_Getopt('-sc',3,def_sc_size)
+elif iop_sc == 2:
+  sc_info[0] = f_Getopt('-sc',1,def_sc_bound) 
+elif iop_sc == 3: 
+  sc_info[0] = f_Getopt('-sc',1,def_sc_ratio)
+else:
+  iop_sc = 0 
+  sc_info = None 
+
+if inp == 'w2k' or out == 'w2k' or inp == 'qe_out' or inp == 'siesta_out': 
+  def_type = 'c'
+else:            
+  def_type = 'm'
+
+type = f_Getopt('-t',1,def_type) 
+debug = f_Getopt('--debug',0,def_debug)
+
+alatt = 1.0 
+latt_vec = None
+ibrav = 0 
+latt_type = 'P'
+
+# read structure 
+# the following structure is by default for crystal 
+#  bas_w2k: atomic positions represented in the wien2k convention 
+#  bas: atomic positions represented in terms of lattice vectors (as defined by latt_vec) 
+#  mol: atomic positions in the Cartesian coordinates 
+#
+bas_w2k = None 
+
+r0rmt_w2k = None 
+
+if inp=='w2k':
+  print "Read structure from WIEN2k struct file:"
+  file = W2k_check_name(file)
+  latt_type,latt,bas_w2k,r0rmt_w2k = W2k_read_struct(file)
+
+  ibrav,latt_type = f_Latt_Get_ibrav(latt_type,latt,bas_w2k)
+
+  ## note that latt[0:2] are now in units of Angstrom 
+  print "Bohr2Ang: %s" % Bohr2Ang
+  for i in range(3): latt[i] *= Bohr2Ang
+
+  latt_vec = f_Latt_Vectors(latt_type,latt)
+
+  if latt_type == 'P' or latt_type == 'R' or  latt_type == 'H': 
+    mol = f_Latt_Struct_I2C(bas_w2k,latt_vec,1)
+  else: 
+    mol = f_Latt_Struct_I2C(bas_w2k,latt,0) 
+
+  bas = W2k_struct_c2p(bas_w2k,latt_type)
+
+elif inp == 'info':
+  type = 'c'
+  if crys_info == '':
+    print "ERROR: missing crystal information -ci ..."
+    sys.exit(1)
+  
+  out = Struct_parse_info(crys_info)
+  if out is None:
+    print "ERROR: fail to extract structure from "+crys_info
+    sys.exit(1)
+
+  (alatt, latt_vec, bas ) = out 
+
+  latt = f_Latt_Vec2Const(latt_vec)
+
+elif inp == 'siesta_out':
+  if type == 'c':
+    bas,latt_vec = f_siesta_read_structout(file,type='c')
+    mol = f_Latt_Struct_I2C(bas,latt_vec,1)
+    latt = f_Latt_Vec2Const(latt_vec)
+    ibrav,latt_type = f_Latt_Get_ibrav('P',latt,bas)
+  else:
+    mol = f_siesta_read_structout(file,type='m')
+
+#elif inp == 'siesta_xv':
+
+elif inp == 'qe_out':
+  if type == 'c':
+    bas,latt_vec,ibrav = f_qe_read_struct_out(file,0)
+    latt = f_Latt_Vec2Const(latt_vec,ibrav)
+    mol = f_Latt_Struct_I2C(bas,latt_vec,1)
+  else:
+    mol = f_qe_read_struct_out(file,1)
+
+elif inp == 'vasp':
+  (alatt,latt_vec,specs,nat_spec,mode,bas) = vasp_read_poscar(file) 
+  latt = f_Latt_Vec2Const(latt_vec)
+  for i in range(3):
+    latt[i] *= alatt
+
+  if mode == 'd' or mode == 'D':
+    mol = f_Latt_Struct_I2C(bas,latt_vec,1)
+  else:
+    mol = bas
+
+# the following structure is by default for molecule 
+elif inp == 'xyz':
+  mol = f_xyz_read(file,debug=debug)
+
+elif inp == 'mol':
+  mol = f_mol_read(file,debug=debug)
+
+elif inp == 'gjf':
+  mol = f_gau_read_gjf(file)
+
+elif inp == 'g09out':
+  mol = f_gau_read_out(file,-1)
+
+else: 
+  print "ERROR: unsupported input format " + inp
+  sys.exit(1) 
+
+#
+# If the input file does not provide lattice vectors, then define a supercell 
+# in terms of the size of the molecule
+#
+if latt_vec is None:
+  latt_type, latt, bas = f_Struct_mol2sc(mol,iop_sc,sc_info) 
+  latt_vec = f_Latt_Vectors(latt_type,latt)
+
+#
+#  make some manipuation of the structure if required 
+#
+if type =='m':
+  natom = len(mol) 
+  if irot == 0:
+    print "\nShift the molecule to zero-centered"
+    for ia in range(natom):
+      for i in range(3):
+        mol[ia][1][i] -= xyz_center[i]
+else:
+  natom = len(bas) 
+  if irot == 0:
+    print "\nShift the crystal zero-centered" 
+    bas_center = f_Struct_Center(bas)
+    for ia in range(natom):
+      for i in range(3):
+        bas[ia][1][i] -= bas_center[i]
+
+  elif irot == 1:
+
+    print "\nShift the crystal by (%12.6f,%12.6f,%12.6f)"%(shift[0],shift[1],shift[2])
+    for ia in range(natom):
+      for i in range(3):
+        bas[ia][1][i] += shift[i]
+        if not bas_w2k is None:
+          bas_w2k[ia][1][i] += shift[i]
+  
+  for ia in range(natom):
+    for i in range(3): 
+      if bas[ia][1][i] < 0.0: bas[ia][1][i] += 1.0 
+      if bas[ia][1][i] > 1.0: bas[ia][1][i] -= 1.0
+
+  if not bas_w2k is None:
+    for ia in range(natom):
+      for i in range(3):
+        if bas_w2k[ia][1][i] < 0.0: bas_w2k[ia][1][i] += 1.0
+        if bas_w2k[ia][1][i] > 1.0: bas_w2k[ia][1][i] -= 1.0
+
+  # sort the coordinates the structure 
+if sort != 0: 
+  f_Sort_Struct(mol,sort) 
+  if type =='c': f_Sort_Struct(bas,sort) 
+  if not bas_w2k is None:
+    f_Sort_Struct(bas_w2k,sort)
+
+if type == 'c': 
+  print "\nCrystal structure:"
+  print "  Lattice Type:     ",latt_type
+  print "  Lattice Constants:\n\t a=%10.4f, b=%10.4f, c=%10.4f\n\t alpha=%6.2f, beta =%6.2f, gamma=%6.2f"%(latt[0],latt[1],latt[2],latt[3],latt[4],latt[5])
+  print "  Lattice Vectors:"
+  for i in range(3):
+    print "\ta(%1d)=(%12.6f,%12.6f,%12.6f)"%(i,latt_vec[i][0],latt_vec[i][1],latt_vec[i][2])
+
+  print "  Internal coordinates:"
+  for i in range(natom): 
+    print "\t%4s(%12.6f,%12.6f,%12.6f)"%(bas[i][0],bas[i][1][0],bas[i][1][1],bas[i][1][2])
+else: 
+  print "\nMolecular structure (in cartesian coordinates):"
+  for i in range(natom):
+    print "\t%4s(%12.6f,%12.6f,%12.6f)"%(mol[i][0],mol[i][1][0],mol[i][1][1],mol[i][1][2])
+
+# write structure 
+if out == 'siesta-full':
+  if type == 'm': 
+    f_siesta_write_struct(file,mol)
+  else: 
+    f_siesta_write_struct(file,bas,latt[0],latt_vec)
+
+elif out == 'siesta':
+  if type == 'm':
+    f_siesta_write_struct(file,mol,full_fdf=False)
+  else:
+    f_siesta_write_struct(file,bas,latt[0],latt_vec,full_fdf=False)
+
+elif out == 'qe':
+  if type == 'm': 
+    f_qe_write_struct(file,mol)
+  else:
+    f_qe_write_struct(file,bas,latt,ibrav)
+
+elif out == 'vasp':
+  if type == 'm':
+    vasp_write_poscar(1,mol, 1.0,latt_vec,file)
+  else:
+    vasp_write_poscar(0,bas,alatt,latt_vec,file)
+
+elif out == 'atat':
+  atat_write_latin(0,latt_type,latt,bas,fname='lat.in')
+
+elif out == 'xyz':
+  f_xyz_write(file,mol)
+
+elif out == 'gjf':
+  f_gau_write_gjf(file,mol)
+
+elif out == 'w2k':
+  for i in range(3): latt[i] *= Ang2Bohr
+
+  if bas_w2k is None: 
+    W2k_write_struct(file,latt_type,latt,bas) 
+  else:
+    W2k_write_struct(file,latt_type,latt,bas_w2k)
+
+elif out == 'cif':
+  f_cif_write(file,latt,bas) 
+

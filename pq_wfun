@@ -1,0 +1,92 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from struct_utils import *
+from constants    import *
+from qe_utils     import * 
+from io_utils     import *
+from data_utils   import * 
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to calculate work function using Quantum-ESPRESSo output\n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -d <dir_norm>          # the normal direction of the surface, 1/2/3 for x/y/z
+                           # if negative (-1/-2/-3), the vacuum is at the center 
+    -h                     # display this help information
+    -s <slab_in slab_out>  # the input and output file for the slab calculation
+    -b <bulk_in bulk_out>  # the input and output file for the bulk calculation 
+    -n <npt >              # the number of points used for interpolation 
+    -w <width >            # width to make averaging
+    -m                     # indicating metallic 
+    --debug                # set debug mode
+  Examples:
+  """
+  sys.exit(0)
+
+# default input and output format 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+dir_norm = f_Getopt('-d',1,3         )
+width    = f_Getopt('-w',1,0.0       ) 
+inp_pwx  = f_Getopt('-i',1,'pw.in'   ) 
+out_pwx  = f_Getopt('-o',1,'pw.out'  ) 
+npt      = f_Getopt('-n',1,3000      ) 
+bulk_files= f_Getopt("-b",2,["",""]  )
+slab_files= f_Getopt("-s",2,["",""]  )
+
+(bulk_inp,bulk_out) = (bulk_files[0],bulk_files[1])
+(slab_inp,slab_out) = (slab_files[0],slab_files[1])
+
+
+prefix0= io_get_val(slab_inp,'prefix','s')
+outdir=  io_get_val(slab_inp,'outdir','s')
+
+print "  prefix= ",prefix0
+print "  outdir= ",outdir
+
+prefix=prefix0[1:len(prefix0)-1]
+print "prefix=",prefix
+
+QE_pp_aver(prefix,outdir,npt,width,abs(dir_norm))
+
+# extract the wfun
+evbm = QE_read_evbm(slab_out) 
+v00 = f_Read_Number(prefix+"-aver.dat",'f',1,3)*Ry2eV
+v05 = f_Read_Number(prefix+"-aver.dat",'f',npt/2,3)*Ry2eV
+if dir_norm < 0: 
+  v0_slab = v00
+  v_vac= v05
+else:
+  v0_slab = v05
+  v_vac = v00
+
+IP1 = v_vac - evbm 
+print "V_vac= %12.3f, V0(slab)= %12.3f, E_VBM(slab)= %12.3f"%(v_vac,v0_slab,evbm) 
+
+# get the information on the bulk 
+if bulk_inp != "":
+  print "Obtain information on the bulk:"
+  prefix0= io_get_val(bulk_inp,'prefix','s') 
+  outdir=  io_get_val(bulk_inp,'outdir','s') 
+
+  prefix=prefix0[1:len(prefix0)-1]
+  print "prefix=",prefix 
+
+  QE_pp_aver(prefix,outdir,npt,-1.0,abs(dir_norm))
+
+  v0_bulk = f_Read_Number(prefix+"-aver.dat",'f',1,3)*Ry2eV
+  evbm_bulk = QE_read_evbm(bulk_out) 
+  print "E_VBM(bulk)= %12.3f, V0(bulk)= %12.3f"%(evbm_bulk,v0_bulk) 
+
+  IP2 = (v_vac - v0_slab) - (evbm_bulk - v0_bulk) 
+
+  print "\n:IP (without and with bulk corr) = %8.3f %8.3f"%(IP1,IP2)
+
+else:
+
+  print "\n:IP (w/o bulk corr.) = %8.3f "%(IP1)
+
+

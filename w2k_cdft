@@ -1,0 +1,435 @@
+#!/bin/tcsh -f
+
+# This script  run a complete constrained DFT calculation starting from an given supercell structure 
+# external programs/scripts used
+#   awk
+#   w2k scripts and programs
+#   w2k_clean
+#   w2k_checkerror 
+#   cdft_init 
+
+echo '-----------------------------------------------------------------'
+echo '                           w2k_cdft                             '
+echo '-----------------------------------------------------------------'
+
+
+set fullname=$0
+set bindir=$fullname:h
+set name=$fullname:t
+set logfile=:log
+set ierr = 0
+set wdir=`pwd`
+
+alias cpf 'cp -f'
+alias mvf 'mv -f'
+alias rmf 'rm -f'
+alias sb 'shift; breaksw'       #definition used in switcha
+alias AWK awk
+
+alias print  ' echo  \!:* | tee -a $outfile;'
+alias runscf ' print runsp_lapw $jobopt;' \
+             ' runsp_lapw  $jobopt;'\
+             ' w2k_testerror;'\
+             ' if($status) goto error'
+
+unset file 
+unset cmplx 
+unset start
+unset orbu 
+unset init 
+
+set cmplxflag
+set skipj
+set jobopt = ( -ec 0.00001 -i 500 )
+set outdir=$wdir 
+
+while ($#argv)
+  switch ($1)
+    case -c:
+      set cmplx='c'; set cmplxflag='-c'; sb 
+    case -d:
+      shift; set outdir=$1; sb 
+    case -i: 
+      set init; sb 
+    case -f:
+      shift; set file=$1; set jobopt = ( $jobopt -f $1 ); sb 
+    case -j:
+      unset skipj; sb 
+    case -orbu: 
+      shift; set orbu=$1; set jobopt = ( $jobopt -orb ); sb 
+    case -p:          
+      set jobopt = ( $jobopt -p ); sb 
+    case -s:
+      shift; set start=$1; sb
+    case -h:
+      goto help
+    default:
+      echo "ERROR: Undefined argument" $1
+      goto help 
+  endsw
+end
+
+# set default vaule of the filename to the name of the working directory
+  if (! $?file) then
+    set file  = `pwd`
+    set file  = $file:t
+  endif
+  echo ' case name:' $file
+
+  if ( $outdir != $wdir ) then 
+    echo "Output directory :" $outdir
+    mkdir -p $outdir 
+  endif 
+
+  # check complex
+  w2k_chkcmplx $cmplxflag -f $file 
+  if( $status == 1 ) then 
+    set cmplx='c'
+  else if( $status == 0 ) then 
+    set cmplx=''
+  else 
+    echo "  ERROR found when chkcmplx"
+    goto error 
+  endif
+
+  set outfile = $outdir/$file.outcdft
+  echo " w2k_cdft on " >>$outfile  
+  date  >> $outfile 
+  echo ''>>$outfile
+
+  if($?start) then 
+    goto $start
+  endif 
+
+init:
+  if !(-e $file.struct ) then
+    echo " ERROR: Current directory does not have $file.struct!"
+    goto error
+  endif
+
+  set INP_CDFT=$file.incdft
+  
+  if ( !(-e $INP_CDFT) ) then 
+    echo "ERROR: $INP_CDFT is missing!"
+    goto error
+  endif 
+
+  echo " "
+  echo "--- $INP_CDFT ---"
+  cat $INP_CDFT
+  echo " " 
+
+  set iop_oth=`AWK 'NR == 2 {print $3}' $INP_CDFT`
+
+  ## initialize inorb file if not existing orbu is neglected in iop_other is set non-zero in incdft 
+  if ( ($iop_oth == 0 ) && ( $?orbu ) ) then 
+    echo " Create inorb according $INP_CDFT and orbu"
+    set natorb=`AWK 'NR == 4 {print $2-1}' $INP_CDFT`
+    set lorb=`AWK 'NR == 3 {print $2}' $INP_CDFT`
+    set iats_orb
+    set ia=1
+    while ( $ia <= $natorb )
+      set iats_orb = ( $iats_orb `AWK -v i=$ia 'NR == 4 {print $(3+i) }' $INP_CDFT` )
+      @ ia++
+    end
+
+    # create inorb file 
+    set inorb=$file.inorb
+    if( -e $inorb) mvf $inorb ${inorb}_old 
+    echo "1  $natorb 0           nmod, natorb, ipr" > $inorb
+    echo "PRATT  1.0             BROYD/PRATT, mixing" >> $inorb
+    set ia=1
+    while ( $ia <= $natorb )
+      echo "$iats_orb[$ia] 1 $lorb    iatom nlorb, lorb">> $inorb
+      @ ia++
+    end
+    echo "1                      nsic 0..AFM, 1..SIC, 2..HFM" >> $inorb
+
+    set ia=1
+    while ( $ia  <= $natorb )
+      echo "$orbu  0.00      U J (Ry)" >> $inorb
+      @ ia++
+    end
+    echo " --- $inorb ---"
+    cat $inorb
+  
+    # create indm file 
+    set indm=$file.indm$cmplx
+    if !( -e $indm ) then
+      echo "-9.       Emin cutoff energy"   > $indm
+      echo $natorb >> $indm
+      set ia=1
+      while ( $ia <= $natorb )
+        echo $iats_orb[$ia] 1 $lorb  >> $indm
+        @ ia++
+      end
+      echo 0 0 >> $indm
+    endif
+  endif
+
+  if($?init) then  
+    echo "Make a bakup for original in1, in2 and inc* files"
+    foreach i ( inc in1$cmplx in2$cmplx )
+      if ( -e $file.$i ) then
+        cpf $file.$i $file.${i}_bakcdft
+      endif
+    end
+
+    echo "Run cdft_init:" 
+    cdft_init.x < $INP_CDFT 
+    if ( -e cdft_init.error ) then 
+      echo "ERROR: Fail to run initcdft.x "
+      goto error 
+    endif
+
+  endif 
+
+  if( $outdir != $wdir ) then 
+    cpf $file.cdft_conf $outdir 
+    cpf $file.struct $file*_cdft* $outdir 
+    cpf $file.incdft $outdir
+  endif  
+
+# do n+0.5  calculation 
+np:
+  print 
+  print '--- run n+0.5 calculations ---'
+  print 
+  cpf $file.in1${cmplx}_cdft $file.in1$cmplx
+  cpf $file.in2${cmplx}_cdft_p $file.in2$cmplx
+  cpf $file.incup_cdft_p       $file.incup
+  cpf $file.incdn_cdft_p       $file.incdn
+
+  runscf 
+  w2k_save -f $file -d $outdir/n_p -F
+ 
+# do n-0.5  calculation
+n-:
+  print
+  print '--- run n-0.5 calculations ---'
+  print 
+  cpf $file.in1${cmplx}_cdft $file.in1$cmplx
+  cpf $file.in2${cmplx}_cdft_m $file.in2$cmplx
+  cpf $file.incup_cdft_m       $file.incup
+  cpf $file.incdn_cdft_m       $file.incdn
+
+  runscf
+  w2k_save -f $file -d $outdir/n_m -F
+
+nj:
+  if($?skipj) goto sum
+  print 
+  print '--- run n_j calculations ---'
+  print 
+  cpf $file.in1${cmplx}_cdft   $file.in1$cmplx
+  cpf $file.in2${cmplx}_cdft_j $file.in2$cmplx
+  cpf $file.incup_cdft_j       $file.incup
+  cpf $file.incdn_cdft_j       $file.incdn
+  runscf
+  w2k_save -f $file -d $outdir/n_j -F
+
+recover:
+  foreach i ( inc incup incdn in1$cmplx in2$cmplx )
+    if ( -e $file.${i}_bakcdft ) then
+      cpf $file.${i}_bakcdft $file.${i}
+    endif
+  end
+
+# summarize: extract results 
+sum:
+
+  print 
+  print '---- Summarize ----'
+  print  
+
+  # to extract cdft results, one only needs cdft_conf 
+
+  set CONF_FILE=$outdir/$file.cdft_conf
+
+  set iconf=`AWK 'NR == 1 {print $1}' $CONF_FILE` 
+  set   iat=`AWK 'NR == 1 {print $2}' $CONF_FILE`
+  set     n=`AWK 'NR == 1 {print $3}' $CONF_FILE`
+  set     l=`AWK 'NR == 1 {print $4}' $CONF_FILE`
+  set   nel=`AWK 'NR == 1 {print $5}' $CONF_FILE`
+
+  print "  iconf  =" $iconf 
+  print "  iat_imp=" $iat
+  print "  n,l    =" $n $l 
+  print "  nel    =" $nel 
+
+  if( $iat< 10 ) then 
+    set iatflag="00$iat"
+  else 
+    if( $iat > 100 ) then 
+      set iatflag=$iat 
+    else 
+      set iatflag="0$iat"
+    endif 
+  endif 
+  print ' - iatflag' $iatflag 
+
+  switch($l) 
+  case 0:
+    set enflag = ":${n}SS$iatflag"; breaksw
+  case 1:
+    set enflag = ":${n}PP$iatflag"; breaksw
+  case 2:
+    set enflag = ":${n}DD$iatflag"; breaksw
+  case 3:
+    set enflag = ":${n}FF$iatflag"; breaksw
+  endsw
+  print ' - enflag' $enflag
+
+  set en1_p=`AWK -v flag=$enflag 'index($0,flag)!=0 {print $(NF-1) }' $outdir/n_p/$file.scfcup`
+  set en2_p=`AWK -v flag=$enflag 'BEGIN{ien1=-1}; index($0,flag) { ien1 = NR }; NR == ien1+1 {print $(NF-1)} ' $outdir/n_p/$file.scfcup`
+  set efermi_p=`AWK '/:FER/ {print $NF}' $outdir/n_p/$file.scf2up`
+  print " - en1_p=" $en1_p 
+  print " - en2_p=" $en2_p 
+  print " - efermi_p=" $efermi_p
+
+  set en1_m=`AWK -v flag=$enflag 'index($0,flag)!=0 {print $(NF-1) }' $outdir/n_m/$file.scfcup`
+  set en2_m=`AWK -v flag=$enflag 'BEGIN{ien1=-1}; index($0,flag)!=0 { ien1 = NR }; NR == ien1+1 {print $(NF-1)} ' $outdir/n_m/$file.scfcup`
+  set efermi_m=`AWK '/:FER/ {print $NF}' $outdir/n_m/$file.scf2up`
+  print " - en1_m=" $en1_m 
+  print " - en2_m=" $en2_m 
+  print " - efermi_m=" $efermi_m
+
+  echo $en1_p $en2_p $efermi_p $en1_m $en2_m $efermi_m  > cdft.tmp
+
+  set n1p=`AWK 'NR == 2 {print $1}'    $CONF_FILE `
+  set n2p=`AWK 'NR == 2 {print $2}'    $CONF_FILE `
+  set ntp=`AWK 'NR == 2 {print $1+$2}' $CONF_FILE `
+
+  set n1m=`AWK 'NR == 3 {print $1}'    $CONF_FILE `
+  set n2m=`AWK 'NR == 3 {print $2}'    $CONF_FILE `
+  set ntm=`AWK 'NR == 3 {print $1+$2}' $CONF_FILE `
+  print 'n1p,n2p,ntp=' $n1p $n2p $ntp
+  print 'n1m,n2m,ntm=' $n1m $n2m $ntm
+  print '----------------------------------------'
+  print '*     Hubbard U from CDFT (eV)         *'
+  print '----------------------------------------'
+
+  AWK -v n1p=$n1p -v n2p=$n2p -v ntp=$ntp -v n1m=$n1m -v n2m=$n2m -v ntm=$ntm \
+     'NR == 1 { print ":U_Hub:        =", (((n1p*$1+n2p*$2)/ntp-$3) - ((n1m*$4+n2m*$5)/ntm-$6) )*13.6 } ' cdft.tmp  \
+    | tee -a $outfile 
+
+  AWK -v n1p=$n1p -v n2p=$n2p -v ntp=$ntp -v n1m=$n1m -v n2m=$n2m -v ntm=$ntm \
+       'NR == 1 { print ":U_Hub(w/o Ef):=", (((n1p*$1+n2p*$2)/ntp) - ((n1m*$4+n2m*$5)/ntm) )*13.6 } ' cdft.tmp  \
+    | tee -a $outfile
+
+  AWK  'NR == 1 { print ":U_Hub(l-1/2): =", ( ($1-$3)-($4-$6) )*13.6 } ' cdft.tmp | tee -a $outfile
+  AWK  'NR == 1 { print ":U_Hub(l+1/2): =", ( ($2-$3)-($5-$6) )*13.6 } ' cdft.tmp | tee -a $outfile
+
+
+  if !( $?skipj ) then 
+    print " -- Extract J --"
+    set jflag=`AWK 'NR == 4 {print $5}'   $CONF_FILE `
+    set n1dn=`AWK 'NR == 4 {print $3}'    $CONF_FILE `
+    set n2dn=`AWK 'NR == 4 {print $4}'    $CONF_FILE `
+    set ntdn=`AWK 'NR == 4 {print $3+$4}' $CONF_FILE `
+
+    set en1_dn=`AWK -v flag=$enflag 'index($0,flag)!=0 {print $(NF-1) }' $outdir/n_j/$file.scfcdn`
+    set en2_dn=`AWK -v flag=$enflag 'BEGIN{ien1=-1}; index($0,flag)!=0 { ien1 = NR }; NR == ien1+1 {print $(NF-1)} ' $outdir/n_j/$file.scfcdn`
+    set efermi_dn=`AWK '/:FER/ {print $NF}' $outdir/n_j/$file.scf2up`
+    print " - en1,en2,efermi(dn)=" $en1_dn,$en2_dn,$efermi_dn
+    print ' - n1dn,n2dn,ntdn=' $n1dn $n2dn $ntdn
+
+    if( ( $jflag != 0 ) && (( $jflag != 1 ) && ( $jflag != -1 )) ) then 
+      set jflag=-1
+    endif 
+
+    switch($jflag) 
+    case 0:
+      set en1_up=`AWK -v flag=$enflag 'index($0,flag)!=0 {print $(NF-1) }' $outdir/n_j/$file.scfcup`
+      set en2_up=`AWK -v flag=$enflag 'BEGIN{ien1=-1}; index($0,flag) { ien1 = NR }; NR == ien1+1 {print $(NF-1)} ' $outdir/n_j/$file.scfcup`
+      set efermi_up=`AWK '/:FER/ {print $NF}' $outdir/n_j/$file.scf2up`
+      set n1up=`AWK 'NR == 4 {print $1}'    $CONF_FILE `
+      set n2up=`AWK 'NR == 4 {print $2}'    $CONF_FILE `
+      set ntup=`AWK 'NR == 4 {print $1+$2}' $CONF_FILE`
+      breaksw 
+    case -1:
+      set en1_up=$en1_m
+      set en2_up=$en2_m
+      set efermi_up=$efermi_m
+      set n1up=$n1m
+      set n2up=$n2m
+      set ntup=$ntm
+      set md=`AWK 'NR == 4 {print ($1+$2-$3-$4+3)/2}' $CONF_FILE `
+      breaksw 
+    case 1:
+      set en1_up=$en1_p
+      set en2_up=$en2_p
+      set efermi_up=$efermi_p
+      set n1up=$n1p
+      set n2up=$n2p
+      set ntup=$ntp
+      set md=`AWK 'NR == 4 {print ($1+$2-$3-$4-3)/2}' $CONF_FILE `
+      breaksw
+    endsw
+    print " - en1,en2,efermi(up)=" $en1_up,$en2_up,$efermi_up
+    print ' - n1up,n2up,ntup=' $n1up $n2up $ntup
+
+    echo $en1_up $en2_up $efermi_up $en1_dn $en2_dn $efermi_dn > cdft.tmp
+
+    if ( $jflag == 0 ) then 
+      AWK -v n1u=$n1up -v n2u=$n2up -v ntu=$ntup -v n1d=$n1dn -v n2d=$n2dn -v ntd=$ntdn \
+         'NR == 1 { print ":J:        =", ( -(n1u*$1+n2u*$2)/ntu + (n1d*$4+n2d*$5)/ntd )*13.6 } ' cdft.tmp  \
+           | tee -a $outfile
+      AWK 'NR == 1 { print ":J(l-1/2):=", ($4-$1)*13.6 } ' cdft.tmp | tee -a $outfile
+      AWK 'NR == 1 { print ":J(l+1/2):=", ($5-$2)*13.6 } ' cdft.tmp | tee -a $outfile
+
+    else
+      echo  " md=" $md 
+      echo  " jflag=" $jflag
+      set md1=`echo "$md + $jflag" | bc -l`
+      if ( $md1 == 0 ) then 
+        print "Wrong occupation for calculating J!"
+        goto error
+      endif 
+      echo "md1=",$md1
+
+      AWK -v n1u=$n1up -v n2u=$n2up -v ntu=$ntup -v n1d=$n1dn -v n2d=$n2dn -v ntd=$ntdn -v md=$md -v jf=$jflag  \
+          'NR == 1 { print ":J:         =", (- ((n1u*$1+n2u*$2)/ntu-$3) + ((n1d*$4+n2d*$5)/ntd-$6) )*13.6/(md+jf) } ' cdft.tmp  \
+          | tee -a $outfile
+      AWK  -v md=$md -v jf=$jflag  \
+          'NR == 1 { print ":J(l-1/2):  =", ( -($1-$3)+($4-$6) )*13.6/(md+jf) } ' cdft.tmp  | tee -a $outfile
+    endif 
+  endif     
+
+  goto done 
+ 
+clean:
+
+  foreach i ( inc in1$cmplx in2$cmplx )
+    if ( -e $file.${i}_bakcdft ) then
+      mvf $file.${i}_bakcdft $file.${i}
+    endif
+  end
+  rmf *_cdft* 
+
+done:
+  exit 0 
+
+error: 
+  echo "ERROR in w2k_cdft"
+  exit 1
+  
+help:
+    cat <<EOF
+  Usage: `basename $0` [options]
+  Options:
+    -c                # indicate complex calculations 
+    -d <outdir >      # output directory 
+    -f <file>         # set non-default case name 
+    -h                # show this information 
+    -i                # run cdft_init.x, which is otherwise skippied   
+    -j                # include the calculation of J 
+    -orbu <U>         # add LDA+U correction to non-impurity target atoms
+    -p                # parallel running 
+    -s <start=init>   # directly start with init/np/n-/sum/clean
+                      #   np --  n+0.5 
+                      #   n- --  n-0.5
+                      #   nj --  n_j 
+                      #   sum -- summarize 
+                      #   clean -- remove all cdft related files and recover to the origional status 
+EOF

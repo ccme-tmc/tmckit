@@ -1,0 +1,143 @@
+#!/bin/tcsh -f 
+#
+unalias rm
+set name     = $0
+set name     = $name:t 		#name of this script-file
+
+unset file 
+set savedir  = ""
+set savefile = ""
+unset force
+unset new
+unset sp
+unset silent
+alias sb 'shift; breaksw'
+
+
+#---> path- and file-names
+#
+#if ($#argv == 0) goto help
+while ($#argv)
+  switch ($1)
+  case -h
+    goto help
+  case -d
+    shift; set savedir = $1; sb
+  case -f
+  case --file
+    shift; set file = $1; sb
+  case -F
+    set force; sb 
+  case -s
+    set silent; sb 
+  case -sp:
+    set sp; sb 
+  default: 
+    set savefile = $1
+    shift
+    breaksw
+  endsw
+end
+
+if (! $?file) then
+  set file  = `pwd`
+  set file  = $file:t
+endif
+echo ' case name:' $file
+
+if !($?silent) echo "New version of save_lapw selected"
+
+if ( $savedir == "" ) then 
+  set savedir="$file" 
+endif 
+
+if !(-d $savedir) then
+  mkdir -p $savedir
+endif
+
+if !($?silent) then
+  echo ""
+  echo "Starting save:"
+endif
+
+set files4gw = ( $file.r2v $file.r2vdn $file.vns $file.vnsup $file.vnsdn \
+                 $file.scfc $file.scfcup $file.scfcdn \
+                 $file.corewf $file.corewfup  $file. corewfdn )
+set files= ( $file.struct $file.clmsum $file.clmval $file.clmvalup $file.clmvaldn $file.clmup $file.clmdn $file.dmatup $file.dmatdn $file.dmatud $file.vorbup $file.vorbdn \
+             $file.kgen $file.klist $file.outputkgen $file.scf $file.scf2 $file.scf2up \
+             $file.scf2dn $file.in* $file.nmat_only $file.vsp $file.vspup $file.vspdn $file.rsp $file.rspup $file.rspdn $files4gw )
+
+foreach i ( $files )
+  if ($savefile == "") then
+    set to = $i
+  else
+    set to = $savefile.$i:e
+  endif
+
+  if (-e $savedir/$to)  then
+    if !($?force) goto exists
+  endif
+
+  if !($?silent) echo "   $i -> $savedir/$to"
+  if (! -z $i && -e $i) cp $i $savedir/$to
+end
+
+if (-e $file.scf )	rm $file.scf 
+rm -f $file.broyd*
+
+# recover the scf with the output from the final SCF loop 
+foreach i ( 0 orb 1 so 2 dm c m )
+  if ( (-e $file.scf$i) && !(-z $file.scf$i)) then 
+    if !($?silent) echo "cat $file.scf$i"
+    cat $file.scf$i  >> $file.scf
+  else 
+    if ( (-e $file.scf${i}up) && !(-z $file.scf${i}up)) then
+      if !($?silent) echo "cat $file.scf${i}up"
+      cat $file.scf${i}up >> $file.scf
+    endif
+     
+    if ( (-e $file.scf${i}dn) && !(-z $file.scf${i}dn) ) then
+      if !($?silent) echo "cat $file.scf${i}dn"
+      cat $file.scf${i}dn >> $file.scf
+    endif 
+  endif   
+end
+ 
+exit(0)
+
+exists:
+  cat<<EOF
+$savedir/$to already exists. Quitting save
+
+EOF
+exit(1)
+
+help:
+cat << theend 
+PROGRAM:	$0
+PURPOSE:	saving (and clearing) an scf calculation of WIEN
+		to be called within the case-directory
+		saves the struct clmsum and scf files, deletes broyden files.
+
+		If a save directory or save _all_ input files is specified, 
+		also all input files and klist and kgen files will be
+		saved. Specifying only a save directory without a
+		save_file_name will cause save_lapw to save the
+		abovementioned files under their generic name.
+
+		NOTE: To use restore_lapw you have to utilize the 
+		      new scheme!
+
+USAGE:		$name [FLAGS] [head_of_save_filename]
+
+FLAGS:
+-h           ->	help
+-a           -> save _all_ input files as well (new scheme)
+-F           -> force save_lapw to overwrite previous saves
+-f,--file    -> original case name 
+-d directory -> save calculation in directory specified
+-s           -> silent operation
+theend
+
+exit(1)
+ 

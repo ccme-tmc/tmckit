@@ -1,0 +1,825 @@
+#!/usr/bin/env python
+import os,sys,math,copy,time
+from optparse import OptionParser 
+from qesp_utils import *
+from common_caseutil import f_env_RunMpirunCommand
+from common_math import f_Data_Sum,f_Data_Interpolate,NumericFunction,f_Data_Save
+import math
+
+BohrEtoDebye = 0.20822678 / 0.52918
+Dipole_eV = 27.2116 * 4 * math.pi
+dErr = 0.00001
+
+def f_GetY(x0,y0,x1,y1,x):
+    '''
+    y = f(x) is a line from (x0,y0) to (x1,y1) 
+    '''
+    a = ( y1 - y0 ) / ( x1-x0)
+    b = y0 - a*x0
+    return a*x + b
+
+
+def f_IntY(x0,y0,x1,y1):
+    '''
+    \int_x0^x1 ydx ,y = f(x) is a line from (x0,y0) to (x1,y1) 
+    '''
+    a = ( y1 - y0 ) / ( x1-x0)
+    b = y0 - a*x0
+    return a*x1**2/2 + b*x1 - a * x0**2/2 - b * x0
+
+
+def f_IntXY(x0,y0,x1,y1):
+    '''
+    \int_x0^x1 xydx ,y = f(x) is a line from (x0,y0) to (x1,y1) 
+    '''
+    a = ( y1 - y0 ) / ( x1-x0)
+    b = y0 - a*x0
+    return a*x1**3/3 + b*x1**2/2 - a * x0**3/3 - b * x0**2/2
+
+def f_Data_AddTail_Formula_Range(data2,x1,x2,stMethod="exp",dTailCut=10**-8):
+    '''
+    Add tail to a data from arbitary start point ( all data not in the boundary will be discraded )
+    The grid will be 3x as original data
+
+    lin: for f(x) defined in n1~n2, add (2n1-n2)~n1 as 0~0.5 yn1, n2~(2n2-n1) as 0.5yn2~0, and n1~n2 region is adjusted as integration keeps ( not implented yet )
+    exp: exp(-ax), ensure at (2n1-n2) it is below yn1 * 10^-8 and thus can be safely discarded
+    simple: directly add one point value 0 at each side, and half the last point in original data ( not implented yet)
+    :param x1: left start point
+    :param x2: right start point
+    :param dTailCut: for exp method,dTailCut is the value of tail at n1 - (n2-n1)/2
+    :return: a NumericFunction object
+    '''
+#simple method
+#    if ( stMethod == 'simple' ):
+#        return f_Data_AddTail_Simple(data2)
+
+    nf = NumericFunction(data2)
+    y1 = nf.Get(x1) /2 # half of boundary
+    y2 = nf.Get(x2) /2
+    nCount = len(data2)
+
+    dExp = math.log(dTailCut)/(x2-x1)
+
+    dStep = data2[1][0] - data2[0][0]
+
+    data = []
+    i = 0 
+    while ( i < nCount ):
+        data.append(  [ data2[0][0]- dStep*(nCount-i) , 0   ] )
+        i += 1
+    i = 0
+    while ( i < nCount ):
+        if ( data2[i][0] < x1 or data2[i][0] > x2):
+            data.append( [data2[i][0],0])
+        else:
+            data.append( [data2[i][0] ,data2[i][1]])
+        i += 1
+    i = 0
+    while ( i < nCount ):
+        data.append( [data2[-1][0]+ dStep*(i+1) ,0])
+        i += 1
+
+    nf = NumericFunction(data)
+    nf.ChangeRange(2*x1-x2,x1,lambda x:y1*math.exp( dExp*(x1-x)))
+    nf.ChangeRange(x2,2*x2-x1,lambda x:y2*math.exp( dExp*(x-x2)))
+    nf.ChangeRange(x1,x2,lambda x:-y1*math.exp(dExp*(x-x1))-y2*math.exp(dExp*(x2-x)) )
+
+    return nf
+
+def QESP_PP_ChargeDensity(stFileName,nZGrid):
+    '''
+    Calculate charge density after a scf calculation
+    '''
+    qIn = QESP_PW_input(stFileName)
+    if ( qIn.calculation != "scf" ):
+        print("\33[31mError:post-processing of any calculation except scf may cause problem.\33[m")
+        return
+
+    stCaseName = os.path.splitext(os.path.split(stFileName)[1])[0]
+    ppIn = QESP_IO()
+    ppIn.AddValue("inputpp","outdir",qIn.outdir)
+    ppIn.AddValue("inputpp","prefix",qIn.prefix)
+    ppIn.AddValue("inputpp","plot_num",0)
+    ppIn.AddValue("inputpp","filplot",stCaseName+".charge.dat")
+
+    ppIn.WriteToFile(stCaseName+"_charge_pp.in")
+
+    if ( os.path.exists(stCaseName+"_charge_pp.out")):
+        print("%s_charge_pp.out exists so this result will be directly used." % stCaseName)
+    else:     
+        f_env_RunMpirunCommand(f_QE_DefaultRunCommand(stCaseName+"_charge_pp","pp.x"),1)
+
+    avgIn = open("%s_charge_avg.in" % stCaseName,'w')
+    avgIn.write('''1
+%s
+1.D0
+%d
+3
+0.1 ''' % (ppIn.filplot,nZGrid))
+    avgIn.close()
+
+    f_env_RunMpirunCommand(f_QE_DefaultRunCommand(stCaseName+"_charge_avg","average.x"),1)
+    return
+
+def QESP_GetAtomChargeDensity(stFileName,stAtom,nZGrid=5000):
+    '''
+    Calculate charge density of a single atom under parameter of given pw.x input file
+    :param stFileName: the filename of pw.x input file
+    :param stAtom: the atom name
+    :param nZGrid: the number of points of charge density along z axis
+    '''
+    #stCaseName = os.path.splitext(os.path.split(stFileName)[1])[0]
+    qIn = QESP_PW_input(stFileName)
+    aCell = qIn.GetCell()
+    qIn.nat = 1
+#detect whether atom exits
+    bHas = False
+    for aAtom in qIn.listAtomSpecies:
+        if ( aAtom.stName == stAtom ):
+            bHas = True
+            break
+    if ( not bHas ):
+        raise ValueError, "%s does not exist in the input structure!" % stAtom
+    qIn.listInnerCoord = []
+    qIn.stAtomPositionMode = "crystal"
+    #print(qIn.celldm)
+#create a tetragonal lattice for atom calculation.
+#use original cell c axis as it is convienient to use xy-averaged density in the same cell, due to this program is used in slab so the c axis should be long enough
+    qIn.ibrav = 6
+    qIn.celldm[1] = 8
+    qIn.celldm[3] = aCell.fLatticeLength[2] / 8
+    #put an atom at the centre of cell
+    qIn.listInnerCoord.append([stAtom,0.5,0.5,0.5,0,0,0])
+#set calculation to scf with no file output
+    qIn.calculation = "scf"
+    qIn.outdir = "./out"
+    qIn.wfcdir = "./out"
+    qIn.AddValue("control","disk_io", "none")
+    qIn.conv_thr = 1.0e-10
+    qIn.listKPtGrid = [1,1,1,0,0,0]
+    qIn.stKPtMode = "automatic"
+
+    aCell = qIn.GetCell()
+    fS = aCell.fLatticeLength[0] * aCell.fLatticeLength[1] * sin(aCell.fLatticeAngle[2]*math.pi/180)
+    fAtomZ = aCell.GetAtomList("bohr","conv")[0][3]
+    #print(fAtomZ)
+
+    #save to temp folder
+    stFolder = "tmp_single"
+    if ( not os.path.exists(stFolder)):
+        os.mkdir(stFolder)
+    qIn.WriteToFile(os.path.join(stFolder,stAtom+".in"))
+    
+    stDir = os.getcwd()
+    os.chdir(stFolder)
+    
+    if ( os.path.exists(stAtom+".out")):
+        print("%s.out exists so this result will be directly used." % stAtom)
+    else:
+        f_env_RunMpirunCommand(f_QE_DefaultRunCommand(stAtom),8)
+
+    QESP_PP_ChargeDensity(stAtom+".in",nZGrid)
+
+    data = f_QE_ReadAverage(stAtom+"_charge_avg.out")
+    #nf = NumericFunction(f_Data_Interpolate(data,100))
+    #print("%.10f" % fS)
+#    nf = NumericFunction(f_Data_Interpolate(data,3,0))
+#    f = open("2.txt","w")
+#    for line in nf.data:
+#        f.write("%14.8f,%14.8f\n" % (line[0],line[1]))
+#    f.close()
+#    print("Total charge %f / dipole %f" % ( fS*nf.Integrate(0,nf.data[-1][0],lambda x:x[1]),fS*nf.Integrate(0,nf.data[-1][0],lambda x:x[0]*x[1]   )  ) )
+#    print("Core charge dipole %f" % ( 8 * fAtomZ ))
+    #raise ValueError,"stop"
+
+    #add additional line
+    data.append(copy.deepcopy(data[0]))
+    data[-1][0] = 2 * data[-2][0] - data[-3][0]
+#delete all 0 part and rescale the density unit to electron/cell
+    data2 = []
+    for i in range(0,len(data)):
+        if ( data[i][1] > 0 ):
+            break
+    #for j in range(0,len(data)-1):
+    nStart = i - 2 if i > 2 else i
+    for j in range(nStart,len(data)-nStart-1):
+        data2.append( [ data[j][0]-fAtomZ,data[j][1] * fS ])
+    os.chdir(stDir)
+
+    #verify result
+    #nf = NumericFunction(f_Data_Interpolate(data2,4,0))
+    #print("Total charge %f / dipole %f" % ( nf.Integrate(nf.xmin,nf.xmax,lambda x:x[1]),nf.Integrate(nf.xmin,nf.xmax,lambda x:x[0]*x[1]   )  ) )
+    return data2
+
+
+
+def f_QE_GetDipoleDirect(aCell,data):
+    '''
+    Calculate dipole of a differential charge density; Struct file is only used to indicate position and calculate unit ( /bohr3 and /cell)
+    The input data is assumed in e/Bohr3 unit
+    '''
+    listAtom = aCell.GetAtomList("bohr","conv")
+    fS = aCell.fLatticeLength[0] * aCell.fLatticeLength[1] * sin(aCell.fLatticeAngle[2]*math.pi/180)
+
+    #nfTot =  NumericFunction(f_QE_ReadAverage(stChargeFile))
+
+    #data = nfTot.data
+    #data = f_QE_ReadAverage(stChargeFile)
+    #data = [ [x[0],x[1] * fS ] for x in data]
+    f = open("all.txt","w")
+
+    #reverse data for debug
+    #data2 = copy.deepcopy(data)
+    #for i in range(0,len(data)-1):
+    #    data2[i][1] = data[len(data)-1-i][1]
+    #nfTot.data = data2
+
+    #print(data[-1][0],len(data))
+    i  =0 
+    fCharge = 0
+    fDipole = 0
+    bNext = False
+    fErr = 0.0001
+    list_fZeroZ = [0.0]
+    list_fDipole = [0.0]
+    fChargeLast = 1
+    #listAtom.sort(lambda a1,a2:cmp(a1[3],a2[3]))
+    print(" z1/Bohr   -  z2/Bohr      Layer/eV   Total/eV  Atom" )
+    while ( i < len(data)-2):
+        fCharge += (data[i+1][0]-data[i][0]) * data[i][1]
+        fDipole += (data[i+1][0]-data[i][0]) * data[i][1] * data[i][0]
+        f.write("%f %f %f\n" %  ( data[i][0],fCharge,fDipole  ) )
+        if ( bNext and fCharge*fChargeLast < 0 or i == (len(data)-3) ):
+            #create atom position list
+            dicAtomInLayer = {}
+            for Atom in listAtom:
+                if ( Atom[3] > list_fZeroZ[-1] and Atom[3] < data[i][0] ):
+                    if ( not dicAtomInLayer.has_key(Atom[0])):
+                        dicAtomInLayer[Atom[0]] = 0
+                    dicAtomInLayer[Atom[0]] += 1
+            stInfo = ""
+            for stName,nCount in dicAtomInLayer.items():
+                stInfo += " %2s%2d" % ( stName,nCount)
+            if ( stInfo == ""):
+                stInfo = "None"
+
+            print("%10.6f - %10.6f : %10.7f %10.7f %s" % (list_fZeroZ[-1],data[i][0],-(fDipole-list_fDipole[-1])*Dipole_eV,-fDipole*Dipole_eV,stInfo))
+            list_fDipole.append(fDipole)
+            bNext = False
+           
+            list_fZeroZ.append( data[i][0])
+        if ( (not bNext) and abs(fCharge) > fErr):
+            bNext = True
+        fChargeLast = fCharge
+        i += 1 
+    f.close()
+
+def f_QE_GetDipoleDiff(aCell,data1,stStructFile,nZGrid=-1):
+    '''
+    Calculate dipole of differential charge density from atom charge density structure and average.x output along z axis
+    :param nZGrid: the grid point of z axis of atom charge density calculation
+    '''
+    nTimes = 10 # extend number of points by this number of times
+
+    qIn = QESP_PW_input(stStructFile)
+    #aCell = qIn.GetCell()
+    listAtom = aCell.GetAtomList("bohr","conv")
+    fS = aCell.fLatticeLength[0] * aCell.fLatticeLength[1] * sin(aCell.fLatticeAngle[2]*math.pi/180)
+ 
+    dicCharge = {}
+#create atom charge density
+    print("Create atom charge density...")
+    for aAtom in qIn.listAtomSpecies:
+        ntAtom = NumericFunction(f_Data_Interpolate(QESP_GetAtomChargeDensity(stStructFile,aAtom.stName,int(aCell.fLatticeLength[2]/0.05/100)*100),nTimes))
+        dicCharge[aAtom.stName] = ntAtom
+        print("Atom %s total charge %f / dipole %f"%(aAtom.stName,ntAtom.Integrate(ntAtom.xmin,ntAtom.xmax,lambda x:x[1]),ntAtom.Integrate(ntAtom.xmin,ntAtom.xmax,lambda x:x[0]*x[1])))
+        f = open(aAtom.stName+".dat","w")
+        for line in ntAtom.data:
+            f.write("%.10f %.10f\n" % (line[0],line[1]))
+        f.close()
+
+    print("Read slab charge density...")
+    #data1 = f_QE_ReadAverage(stChargeFile)
+    #for line in data1: #normalize to electron / z ( not used )
+    #    line[1] *= fS
+    #nfTot = NumericFunction(f_Data_Interpolate(data1,nTimes))
+    nfTot = NumericFunction(data1)
+    #print("Verify data before remove atom..")
+    print("Total charge: %f" % (nfTot.Integrate(0,nfTot.xmax,lambda x:x[1])*fS))
+    #f = open("11.txt","w")
+    #for line in nfTot.data:
+    #    f.write("%.10f %.10f\n" % (line[0],line[1]))
+    #f.close()
+
+    #clear total charge density for debug
+    #for line in nfTot.data:
+    #    line[1] = 0.0
+    nfTot.Write("slab_prediffatom.dat")
+
+    #delete all atom charge density
+    #print("Remove atom charge density..")
+    for i,aAtom in enumerate(listAtom):
+        print("Remove atom #%d at z=%14.8f" % (i,aAtom[3] ))
+        nfAtom = dicCharge[aAtom[0]]
+        xmin  = nfAtom.xmin + aAtom[3]
+        if ( xmin < 0.0 ):
+            xmin = 0.0
+        xmax = nfAtom.xmax + aAtom[3]
+        if ( xmax > nfTot.xmax ):
+            xmax = nfTot.xmax
+        nfTot.ChangeRange(xmin,xmax,lambda x: -nfAtom.Get(x-aAtom[3])/fS)
+        print("Total charge: %f" % (nfTot.Integrate(0,nfTot.xmax,lambda x:x[1])*fS) )
+
+
+    print("Verify data after remove atom..")
+    print("Total charge: %f electron" % (nfTot.Integrate(0,nfTot.xmax,lambda x:x[1]) *fS) )
+    print("Total dipole: %f eV" % (nfTot.Integrate(0,nfTot.xmax,lambda x:x[0]*x[1])*Dipole_eV) )
+
+    #raise ValueError,"stop"
+
+    print("Find dipole..")
+
+
+    nfTot.Write("slab_postdiffatom.dat")
+
+    f = open("all.txt","w")
+
+    #raise ValueError,"stop"
+
+    data = nfTot.data
+    #reverse data for debug
+    #data2 = copy.deepcopy(data)
+    #for i in range(0,len(data)-1):
+    #    data2[i][1] = data[len(data)-1-i][1]
+    #nfTot.data = data2
+
+    #print(data[-1][0],len(data))
+    i  =0 
+    fCharge = 0
+    fDipole = 0
+    bNext = False
+    fErr = 0.0001
+    list_fZeroZ = [0.0]
+    list_fDipole = [0.0]
+    fChargeLast = 1
+    #listAtom.sort(lambda a1,a2:cmp(a1[3],a2[3]))
+    print(" z1/Bohr   -  z2/Bohr      Layer/eV   Total/eV  Atom" )
+    while ( i < len(data)-2):
+        fCharge += (data[i+1][0]-data[i][0]) * data[i][1]
+        fDipole += (data[i+1][0]-data[i][0]) * data[i][1] * data[i][0]
+        f.write("%f %f %f\n" %  ( data[i][0],fCharge,fDipole  ) )
+        if ( bNext and fCharge*fChargeLast < 0 or i == (len(data)-3) ):
+            #create atom position list
+            dicAtomInLayer = {}
+            for Atom in listAtom:
+                if ( Atom[3] > list_fZeroZ[-1] and Atom[3] < data[i][0] ):
+                    if ( not dicAtomInLayer.has_key(Atom[0])):
+                        dicAtomInLayer[Atom[0]] = 0
+                    dicAtomInLayer[Atom[0]] += 1
+            stInfo = ""
+            for stName,nCount in dicAtomInLayer.items():
+                stInfo += " %2s%2d" % ( stName,nCount)
+            if ( stInfo == ""):
+                stInfo = "None"
+
+            print("%10.6f - %10.6f : %10.7f %10.7f %s" % (list_fZeroZ[-1],data[i][0],-(fDipole-list_fDipole[-1])*Dipole_eV,-fDipole*Dipole_eV,stInfo))
+            list_fDipole.append(fDipole)
+            bNext = False
+           
+            list_fZeroZ.append( data[i][0])
+        if ( (not bNext) and abs(fCharge) > fErr):
+            bNext = True
+        fChargeLast = fCharge
+        i += 1 
+    f.close()
+#    print("Total dipole: %f" % fDipole)
+
+
+def f_QE_GetDipoleAtomSplit(aCell,data):
+    '''
+    Calculate dipole by use atom position as split position. 
+    Method: Integrate to atom position and split core charge to two parts, one compensates charges before and what left used in later calculation. This splitting ensures each atom position will be used in some manner. Note: only atom chain is guaranteed to work due to two near atom along z-axis give useless spliting.
+    '''
+
+    listAtom = aCell.GetAtomList("bohr","conv")
+    dicCharge = {}
+    #size of x-y plane of cell
+    fS = aCell.fLatticeLength[0] * aCell.fLatticeLength[1] * sin(aCell.fLatticeAngle[2]*math.pi/180)
+    fC = aCell.fLatticeLength[2]
+#read averaged charge
+
+    fLayerC = data[1][0]-data[0][0]#fC / len(data)
+
+    data = [ [x[0],x[1] * fS] for x in data]
+
+#find all the 0-charge split line and partial dipole
+    #arrange atom along c axis
+    listAtom.sort(lambda a1,a2:cmp(a1[3],a2[3]))
+    fNeg = 0  
+    fNegDipole = 0
+    fPos = 0
+    fPosDipole = 0
+    i = -1
+    iA = 0
+    iAold = 0
+    bNext = False
+    listAtomLineZ = []
+    listZeroLineZ = []
+    listZ2 = []
+    listDipole = []
+    listAtomName = []
+    while ( i < len(data)-2 ):
+        i += 1
+        fZline = data[i+1][0]
+        if ( iA != len(listAtom) and   fZline > listAtom[iA][3]): # detect if any atom is in this layer
+            for j in range(iA,len(listAtom)):
+                #print(listAtom[j][3],fZline)
+                if ( listAtom[j][3] < fZline):
+                    if ( not dicCharge.has_key(listAtom[j][0])):
+                        dicCharge[listAtom[j][0]] = float(raw_input("Please input pseudo charge of %s : " % listAtom[j][0]))
+                    iA = j+1
+                    bNext = (fPos+dicCharge[listAtom[j][0]] > fNeg)# Mark positive charge is larger, start next step search 
+                    if ( bNext ): #split the atom core charge
+                        listZeroLineZ.append(listAtom[j][3])
+
+                        fDensity = f_GetY(data[i][0],data[i][1],data[i+1][0],data[i+1][1],listAtom[j][3])
+                        fNeg += f_IntY(data[i][0],data[i][1],listAtom[j][3],fDensity)
+                        fNegDipole += f_IntXY(data[i][0],data[i][1],listAtom[j][3],fDensity)
+
+                        print("Residual charge: %f" % (fNeg-fPos))
+                        fPosDipole += (fNeg-fPos) * listAtom[j][3] #split core charge
+
+                        listDipole.append(fPosDipole-fNegDipole)
+                        listAtomLineZ.append(listAtom[j][3])
+                        listAtomName.append(listAtom[iA-1][0]+"(%d)" % (iA-iAold) )
+
+                        fPos += dicCharge[listAtom[j][0]]
+                        fPosDipole += (fPos-fNeg) * listAtom[j][3] # add another part
+                        fNeg += f_IntY(listAtom[j][3],fDensity,data[i+1][0],data[i+1][1])
+                        fNegDipole += f_IntXY(listAtom[j][3],fDensity,data[i+1][0],data[i+1][1])
+
+                        iAold = iA
+                    else:
+                        pass
+                else:
+                    break
+        else:
+            fNeg += f_IntY(data[i][0],data[i][1],data[i+1][0],data[i+1][1])
+            fNegDipole += f_IntXY(data[i][0],data[i][1],data[i+1][0],data[i+1][1])
+            #fNeg += (data[i+1][0]-data[i][0])*data[i][1]
+
+    listAtomName.append("None")
+    listZeroLineZ.append(data[-1][0])
+    listDipole.append(fPosDipole-fNegDipole)
+
+                
+    print("Unbalanced charge: %f %f = %f " % (fPos,-fNeg,fPos-fNeg))
+    #print(listDipole,"Atom:",listAtomLineZ,"Zero",listZeroLineZ)
+    print("Dipole from z=0 in each zero charge layer: ( unit = Debye / cell ) ")
+    print("                                      Dipole Total        Dipole Layer")
+    print("z/Bohr -  Atom  D/cell e/Bohr   eV   D/cell e/Bohr   eV  ")
+    for j,fZ in enumerate(listZeroLineZ):
+        fZ1 = 0 if j == 0 else listZeroLineZ[j-1]
+        #print(j,len(listAtomLineZ))
+        #fZ2 = fC if j == (len(listAtomLineZ)-1) else listZeroLineZ[j]
+        fZ2 = listZeroLineZ[j]
+        fD1 = listDipole[j-1] if j != 0 else 0
+        #print("%5.2f - %2s - %5.2f: Dipole total %5.2f, in layer %5.2f" % (fZ-fZ1,listAtomName[j],fZ2-fZ,listDipole[j]/BohrEtoDebye,(listDipole[j]-fD1)/BohrEtoDebye))
+        #print("%6.3f - %6s - %6.3f - %6.3f: Dipole total %6.3f / cell %6.3f e/bohr, in layer %6.3f" % (fZ-fZ1,listAtomName[j],fZ2-fZ,listZ2[j]-fZ,listDipole[j]/BohrEtoDebye,listDipole[j]/fS,(listDipole[j]-fD1)/BohrEtoDebye))
+        ft1 = listDipole[j] 
+        ft2 = listDipole[j] - fD1
+        #print(ft1)
+        print("%6.3f - %6s: %6.3f %6.3f %6.3f %6.3f %6.3f %6.3f " % (fZ-fZ1,listAtomName[j],ft1/BohrEtoDebye,ft1/fS,ft1/fS*Dipole_eV, ft2/BohrEtoDebye,ft2/fS,ft2/fS*Dipole_eV))
+
+
+def f_QE_GetDipole(aCell,data):
+    '''
+    Calculate dipole from structure ( pw.x input, to add core charge ) and average.x output along z axis
+    Note on data structure of average.x output:
+    it give average charge of x-y plane AT the z coordinate printed
+    But the z coordniate it choose is 0, a, 2a,3a..... (n-1)a, while na = C axis
+    So it is not symmetric ! Some if..then  is necessary.
+    Also, due to the problem in dealing with "layer" definition in dipole, it is only guaranteed 
+    :param stStructFile: the pw.x output file
+    :param stChargeFile: the average.x output file
+    '''
+    listAtom = aCell.GetAtomList("bohr","conv")
+    dicCharge = {}
+    #size of x-y plane of cell
+    fS = aCell.fLatticeLength[0] * aCell.fLatticeLength[1] * sin(aCell.fLatticeAngle[2]*math.pi/180)
+    fC = aCell.fLatticeLength[2]
+
+    print("Total charge of input data: %f" %  ( f_Data_Sum(data,1)*fS*(data[0][0]-data[1][0])  )  )
+#read averaged charge
+ 
+    fLayerC = data[1][0]-data[0][0]
+
+    data = [ [x[0],x[1]*fLayerC * fS] for x in data]
+
+#find all the 0-charge split line and partial dipole
+    #arrange atom along c axis
+    listAtom.sort(lambda a1,a2:cmp(a1[3],a2[3]))
+    fNeg = data[0][1] / 2
+    fNegDipole = data[0][1] / 2 * fLayerC / 2 
+    fPos = 0
+    fPosDipole = 0
+    i = 1
+    iA = 0
+    iAold = 0
+    bNext = False
+    listAtomLineZ = []
+    listZeroLineZ = []
+    listZ2 = []
+    listDipole = []
+    listAtomName = []
+    while ( i < len(data)-2 ):
+        i += 1
+        fZline = (data[i][0]+data[i+1][0]) /2 
+        if ( iA != len(listAtom) and   fZline > listAtom[iA][3]): # include atom in this layer , or half in middle layer ( this function is ignored )
+            fHalf = 1.0
+            if ( fZline > fC / 2):
+#                fHalf = 0.5
+                pass
+            for j in range(iA,len(listAtom)):
+                #print(listAtom[j][3],fZline)
+                if ( listAtom[j][3] < fZline):
+                    if ( not dicCharge.has_key(listAtom[j][0])):
+                        dicCharge[listAtom[j][0]] = float(raw_input("Please input pseudo charge of %s : " % listAtom[j][0]))
+                    iA = j+1
+                    fPos += dicCharge[listAtom[j][0]] * fHalf
+                    fPosDipole += dicCharge[listAtom[j][0]] * listAtom[j][3] * fHalf
+                else:
+                    break
+            #print("Find atom line: %f" % listAtom[j-1][3])
+            bNext = (fPos > fNeg)# Mark positive change is larger, start next step search 
+                
+        fNeg += data[i][1]
+        fNegDipole += data[i][1] * data[i][0]
+        if ( fNeg >= (fPos-dErr) and bNext): #find , calc the z-position
+            fZline = data[i][0] + fLayerC /2  - (fNeg - fPos) / data[i][1] * fLayerC
+            bNext = False
+            listZ2.append(data[i][0] + fLayerC / 2 )
+            listZeroLineZ.append(fZline)
+            listDipole.append( fPosDipole-(fNegDipole- (fNeg-fPos)*(fZline+data[i][0]+fLayerC/2)/2  ))
+            listAtomLineZ.append(listAtom[iA-1][3])
+            listAtomName.append(listAtom[iA-1][0]+"(%d)" % (iA-iAold) )
+            iAold = iA
+            #if ( data[i][0] > fC /2 + dErr ):
+            #    break
+    print("Unbalanced charge: %f %f = %f " % (fPos,-fNeg,fPos-fNeg))
+    #print(listDipole,"Atom:",listAtomLineZ,"Zero",listZeroLineZ)
+    print("Dipole from z=0 in each zero charge layer: ( unit = Debye / cell ) ")
+    print("                                      Dipole Total        Dipole Layer")
+    print("z/Bohr -  Atom  - z/Bohr - z/Bohr  D/cell e/Bohr   eV   D/cell e/Bohr   eV  ")
+    for j,fZ in enumerate(listAtomLineZ):
+        fZ1 = 0 if j == 0 else listZeroLineZ[j-1]
+        #print(j,len(listAtomLineZ))
+        fZ2 = fC if j == (len(listAtomLineZ)-1) else listZeroLineZ[j]
+        fD1 = listDipole[j-1] if j != 0 else 0
+        #print("%5.2f - %2s - %5.2f: Dipole total %5.2f, in layer %5.2f" % (fZ-fZ1,listAtomName[j],fZ2-fZ,listDipole[j]/BohrEtoDebye,(listDipole[j]-fD1)/BohrEtoDebye))
+        #print("%6.3f - %6s - %6.3f - %6.3f: Dipole total %6.3f / cell %6.3f e/bohr, in layer %6.3f" % (fZ-fZ1,listAtomName[j],fZ2-fZ,listZ2[j]-fZ,listDipole[j]/BohrEtoDebye,listDipole[j]/fS,(listDipole[j]-fD1)/BohrEtoDebye))
+        ft1 = listDipole[j] 
+        ft2 = listDipole[j] - fD1
+        print("%6.3f - %6s - %6.3f - %6.3f: %6.3f %6.3f %6.3f %6.3f %6.3f %6.3f " % (fZ-fZ1,listAtomName[j],fZ2-fZ,listZ2[j]-fZ,ft1/BohrEtoDebye,ft1/fS,ft1/fS*Dipole_eV, ft2/BohrEtoDebye,ft2/fS,ft2/fS*Dipole_eV))
+   #print(listDipole)
+
+def f_QE_GetDipoleCenterDiff(cSlab,data1,dTailCut,nAtomInLayer,stStructFile,bBorderUseAtom=False):
+    '''
+    Ge difference charge density of slab and (center of slab) applied to all atom.
+    In design, the slab center is used to emulate bulk.
+    :param dTailCut: the tail cut for slab center density. This is used to avoid numerical fluctuation and has no physical meaning
+    :param nAtomInLayer: The number of atom in center layer of slab, used to determine how much charge should we get in the center layer.
+    :param bBorderUseAtom: use atom charge density for atoms at border
+    '''
+#create atom charge density
+    if ( bBorderUseAtom ):
+        nTimes = 10
+        qIn = QESP_PW_input(stStructFile)
+        dicCharge = {}
+        print("Create atom charge density...")
+        for aAtom in qIn.listAtomSpecies:
+            ntAtom = NumericFunction(f_Data_Interpolate(QESP_GetAtomChargeDensity(stStructFile,aAtom.stName,int(cSlab.fLatticeLength[2]/0.05/100)*100),nTimes))
+            dicCharge[aAtom.stName] = ntAtom
+            print("Atom %s total charge %f / dipole %f"%(aAtom.stName,ntAtom.Integrate(ntAtom.xmin,ntAtom.xmax,lambda x:x[1]),ntAtom.Integrate(ntAtom.xmin,ntAtom.xmax,lambda x:x[0]*x[1])))
+            f = open(aAtom.stName+".txt","w")
+            for line in ntAtom.data:
+                f.write("%.10f %.10f\n" % (line[0],line[1]))
+            f.close()
+            
+    #data1 = f_Data_Interpolate(f_QE_ReadAverage(stChargeFile),nInterpolate)
+    #data2 = f_QE_ReadAverage("bulk/Ru_charge_avg.out")
+    print("Creating charge density...")
+    #cSlab = QESP_PW_input(stStructFile).GetCell()
+    listAtomSlab = cSlab.GetAtomList('bohr','conv')
+    listAtomSlab.sort(lambda a1,a2:cmp(a1[3],a2[3]))
+    listAtomSlabZ = [ x[3] for x in listAtomSlab]
+    #cBulk = QESP_PW_input("bulk/Ru.in").GetCell()
+    nfSlab = NumericFunction(data1)
+    fS = cSlab.fLatticeLength[0] * cSlab.fLatticeLength[1] * sin(cSlab.fLatticeAngle[2]*math.pi/180)
+    nMiddle = len(listAtomSlabZ) / 2
+    for i in range(nMiddle,len(listAtomSlabZ)):
+        if ( listAtomSlabZ[i]-listAtomSlabZ[nMiddle] > 1):
+            break
+    nMiddleSide = i
+
+    dRange = (listAtomSlabZ[nMiddleSide]-listAtomSlabZ[nMiddle])/2
+    nfSlab.Write("slab-postdiffbulk.dat")
+    dAtomZ = listAtomSlabZ[len(listAtomSlabZ)/2]
+    print("Center of slab atom ( as Z std): %f" % dAtomZ ) 
+
+    #print("Bulk one atom charge before split:%f" % (nf.Integrate(nfBulk.xmin,nfBulk.xmax,lambda x: x[1]/2)))
+    print("Split at %f,%f of slab"% (listAtomSlabZ[nMiddle],listAtomSlabZ[nMiddleSide]))
+    #nfBulk.Write("bulk_a.dat")
+#Split data
+    n1 = nfSlab.__Index__(listAtomSlabZ[nMiddle]-dRange,True)
+    n2 = nfSlab.__Index__(listAtomSlabZ[nMiddleSide]-dRange,True)
+    nStd = n2
+    dChargeOneAtomSlab = nfSlab.Integrate(nfSlab.xmin,nfSlab.xmax,lambda x: x[1])/len(listAtomSlabZ) * nAtomInLayer
+
+    listCenterNF = None
+    print("Start looking for apporiate range..")
+#Find a range which has good enough charge summation  = slab / atom count
+    while ( True ) :
+#the same as diff bulk one by one
+        print(n1,n2)
+        data2 = copy.deepcopy(data1[n1:n2])
+        #data2 = f_Data_AddTail_Formula(data2,dTailCut=dTailCut)
+        #data2 = f_Data_AddTail_Formula(data2,stMethod='simple')
+        nfCenter = NumericFunction(data2)
+        nfCenter.Write("center.dat")
+                #Test data
+        print("Slab one atom charge:%f" % dChargeOneAtomSlab)
+        dChargeCenter = nfCenter.Integrate(nfCenter.xmin,nfCenter.xmax,lambda x: x[1])
+        print("Center one atom charge:%f" % dChargeCenter)
+        #return
+        print("Center Atom Range: %f, %f~%f,step %14.10f, atom pos %f" % (dRange,nfCenter.xmin,nfCenter.xmax,data2[1][0]-data2[0][0],dAtomZ))
+#adjust range
+#search for minimum error range, and larger than true charge ( for adjustment )
+        dNewErr = dChargeCenter-dChargeOneAtomSlab
+        if ( listCenterNF == None) :
+            listCenterNF= [dNewErr,n1,n2]
+        else:
+            if ( listCenterNF[0] >=  0 and dNewErr < 0  ): #error becomes large; we have come across the minimum; or we across zero
+                print("Use one with err %f " % listCenterNF[0] )
+                break
+            elif ( listCenterNF[0] < 0 and dNewErr >= 0):
+                listCenterNF= [dNewErr,n1,n2]
+                print("Use one with err %f " % dNewErr)
+                break
+            else:
+                listCenterNF= [dNewErr,n1,n2]        
+        
+        if ( dNewErr < 0):
+            n1 = n1 -1
+            n2 = n2 +1
+        else:
+            n1 = n1 + 1
+            n2 = n2 -1
+#modify data to make its charge integration exactly as slab
+#however, modify these totaly ruin the approximation "continuous" so adding tail cause seriously bad effect
+    dStep = data1[1][0] - data1[0][0]
+    data2 = data1[listCenterNF[1]-1:listCenterNF[2]+1] #additional range
+    nCount = len(data2)/2-1
+#interpolation data to make it symmetric with core
+    data3 = [] 
+    for i in range(-nCount,1):
+        dZ = dAtomZ + dStep*i
+        data3.append( [ dZ, nfSlab.Get(dZ) ])
+
+    dChargeDelta = dStep*(f_Data_Sum(data3,1)-data3[-1][1]/2 -data3[0][1]/2) - dChargeOneAtomSlab/2
+    if ( dChargeDelta < 0):
+        print("Error in find range of center! charge delta:%f" % dChargeDelta)
+#find range for integrate ; it should be in the grid of data3
+#determine grid
+    i = 0 
+    while ( dChargeDelta > 0):
+        dChargeDelta -= dStep * ( data3[i][1] + data3[i+1][1] ) /2 
+        i += 1
+    #determine z use trape method ; solve a equation of z^2
+    (x1,y1) = data3[i-1]
+    (x2,y2) = data3[i]
+    print("Solve in range %f,%f - %f,%f" % (x1,y1,x2,y2))
+    if ( y1 == y2 ):
+        x = dChargeDelta / y1 + x2
+    else:
+        dDelta = ( (x1-x2)*(2*dChargeDelta*(y1-y2)+(x1-x2)*y2*y2))**0.5
+        xs1 = ( x2*y1-x1*y2 - dDelta ) / ( y1-y2) # two roots
+        xs2 = ( x2*y1-x1*y2 +dDelta ) / ( y1-y2)
+        if ( abs(dAtomZ-xs1) < abs(dAtomZ-xs2)): # determine which one is nearer to atom and is the solvation we need
+            x = xs1
+        else:
+            x = xs2
+
+    dRange = dAtomZ-x
+    print("Find start point at %f, range %f" % (x,dRange ))
+
+    i = 1
+    while ( i <= nCount ): #duplicate to ensure symmetry
+        data3.append( [dAtomZ + i * dStep,  data3[nCount-i][1]] )
+        i += 1
+
+
+    print("Center charge sum: %f" % ( (f_Data_Sum(data2,1)-data2[-1][1]) *(data2[1][0]-data2[0][0])  ))
+#   data2[0][1] -= listCenterNF[0] / dStep * 2 / 2 
+#   data2[-1][1] -= listCenterNF[0] / dStep *2 / 2
+    #data2 = f_Data_AddTail_Formula(data2,stMethod='simple',dTailCut=dTailCut)
+    #data3 = f_Data_AddTail_Formula(data3,dTailCut=dTailCut)
+    #print("Center charge sum with tail: %f" % ( (f_Data_Sum(data2,1)-data2[-1][1]) *(data2[1][0]-data2[0][0])  ))
+    #nfCenter = NumericFunction(data3)
+    nfCenter = f_Data_AddTail_Formula_Range(data3,dAtomZ-dRange,dAtomZ+dRange,dTailCut=dTailCut)
+    dRange = dAtomZ - nfCenter.xmin
+    dChargeCenter = nfCenter.Integrate(dAtomZ-dRange,dAtomZ+dRange,lambda x: x[1])
+    dDipoleCenter =  nfCenter.Integrate(dAtomZ-dRange,dAtomZ+dRange,lambda x: x[0]*x[1]) - dAtomZ * dChargeOneAtomSlab
+    print("Slab one atom charge:%f" % dChargeOneAtomSlab)
+    print("Center one atom charge:%f" % dChargeCenter)
+    print("Center one atom dipole:%f eV" % ( dDipoleCenter * Dipole_eV  ) )
+    nfCenter.Write("center.dat")
+#end modify
+
+#Calculate slab
+    #print("Atom Position ",listAtomSlabZ)
+    #print([ [ x[3]-dRange,x[3]+dRange ] for x in listAtomSlab ])
+    #print([x[3] for x in listAtomSlab])
+    #print(listAtomSlab[1][3]-listAtomSlab[0][3],dRange*2)
+    #print(listAtomSlab[2][3]-listAtomSlab[1][3],dRange*2)
+
+    #delete bulk atom density one by one
+    #this cause several points at ends diff twice or not diff at all
+    #must deal with data of slab one by one
+    for nIndex in range(0,len(listAtomSlabZ)):
+        #print("Atom Range: ", listAtomSlab[nIndex][3] - dRange,listAtomSlab[nIndex][3] + dRange)
+        #print("Shift: %14.10f" % (listAtomSlab[nIndex][3]-dAtomZ ))
+        print("Deal atom #%d" % nIndex)
+        if ( bBorderUseAtom):
+            dZ = listAtomSlabZ[nIndex]
+            if ( abs(dZ-listAtomSlabZ[0]) < 0.1 or abs(dZ-listAtomSlabZ[-1]) < 0.1):
+                nfAtom = dicCharge[listAtomSlab[nIndex][0]]
+                xmin  = nfAtom.xmin + dZ
+                if ( xmin < 0.0 ):
+                    xmin = 0.0
+                xmax = nfAtom.xmax + dZ
+                if ( xmax > nfSlab.xmax ):
+                    xmax = nfSlab.xmax
+                nfSlab.ChangeRange(xmin,xmax,lambda x: -nfAtom.Get(x-dZ)/fS) #atom charge density in unit e/cell
+                continue
+
+        nfSlab.ChangeRange(listAtomSlab[nIndex][3] - dRange,listAtomSlab[nIndex][3]+dRange,lambda x: -nfCenter.Get(x-listAtomSlab[nIndex][3]+dAtomZ)/nAtomInLayer)
+
+   #nfSlab.ChangeRange(listAtomSlab[0][3] - dRange,listAtomSlab[-1][3]+dRange,lambda x: -f_DiffNearestAtom(listAtomSlabZ,nfCenter,listAtomSlabZ[len(listAtomSlabZ)/2],x))
+
+    nfSlab.Write("slab-postdiffbulk.dat")
+    dDipole = nfSlab.Integrate(0.0,nfSlab.xmax/2,lambda x:x[0]*x[1])*Dipole_eV
+    print("Surface-to-center diff dipole: %f eV" % dDipole)
+    f_QE_GetDipoleDirect(cSlab,copy.deepcopy(nfSlab.data))
+    return dDipole
+
+
+def Main(ArgList):
+    description = "Calculate dipole of half part of a symmetric slab from QE structure and averaged charge density. File with .in suffx will be treated as QE input, and that with .out will be treated as QE output"
+    usage = "usage: pq_dipole [-m Method] [-n AtomInLayerCount] [--cut TailForBulkDensity]  StructFile(QE input or output format) AverageFile "
+    parser = OptionParser(usage=usage,description=description)
+    parser.add_option("-m",dest="stMethod",default="normal",help="Calculate dipole of normal: charge density + atom core charge ; diffatom: differential charge density with atoms; diffbulk: differential charge density with bulk cell ( bulk density comes from center of slab ) ; atom: use atom position as split line of zero-charge line ; direct: assume input charge density is already differentiated and integrate it directly")
+    parser.add_option("-z",dest="stZ",default="-1",help="Number of points along z axis in slab model ( default the twice as used average.x output file; automatically use integer multiple as average.x output")
+    parser.add_option("-n",dest="stN",default="1",help="number of atoms in one layer")
+    parser.add_option("--cut",dest="stCut",default="-30",help="10**cut for extended tail of center charge density at second atom-atom middle position, default -30. This is only useful when use -m diffbulk")
+
+    (options,args) = parser.parse_args(ArgList)
+    if ( len(args) != 3 ):
+        parser.error("Please specify filenames")
+
+    #f_QE_GetDipole(args[1],args[2])
+    nZ = int(options.stZ)
+    data = f_QE_ReadAverage(args[2])
+    if ( nZ == -1):
+        nZ = len(data)
+
+    data = f_Data_Interpolate(data,nZ/len(data)+1)
+    f_Data_Save(data,"inter.dat")
+    aCell = f_QE_ReadLattice(args[1])
+
+    if ( options.stMethod == "diffatom"):
+        if ( f_QE_GetFileType(args[1]) != "QESP_pw_input" ):
+            raise ValueError,"Atom charge density difference require a pw.x input file as structure"
+        f_QE_GetDipoleDiff(aCell,data,args[1]) # need input file for parameter
+    elif ( options.stMethod == "atom"):
+        f_QE_GetDipoleAtomSplit(aCell,data)
+    elif ( options.stMethod == "direct"):
+        f_QE_GetDipoleDirect(aCell,args[2])
+    elif ( options.stMethod == "diffbulk"):
+        if ( f_QE_GetFileType(args[1]) != "QESP_pw_input" ):
+            raise ValueError,"Atom charge density difference require a pw.x input file as structure"
+#detect atoms in one layer to ensure atom in layer count is good
+        listLayer = aCell.GetLayerAtom()
+        print(listLayer)
+        nAtomInLayer = f_Data_Sum( [ len(x) for x in listLayer[len(listLayer)/2]],-1) 
+        nInput = int(options.stN)
+        if ( nAtomInLayer != nInput):
+            print("Warning: there are %d atoms in middle layer of structure but only %d is specified by -n, please ensure it is correct !" % (nAtomInLayer,nInput))
+        f_QE_GetDipoleCenterDiff(aCell,data,10**int(options.stCut),int(options.stN),args[1],False)
+    else:
+        f_QE_GetDipole(aCell,data)
+
+
+if __name__ == ("__main__"):
+    Main(sys.argv)
+

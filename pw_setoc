@@ -1,0 +1,248 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from w2k_utils    import *
+from struct_utils import *
+from io_utils     import *
+
+myname_full = sys.argv[0]
+myname = os.path.basename(myname_full)
+
+def f_Help_Info():
+  print "\n  "+myname_full + ": a Python script to set up a open-core calculation\n"
+  print "  Usage: " + myname + " [options]"\
+  + """
+  Options:  
+    -f <case_name>   # case name 
+    -d               # set the debug mode (default) 
+    -i <inp_oc>      # name of the input file (default, case.inoc) 
+  """
+  print '''This is used to set up an open-core calculation, and 
+  can be also used in constrained DFT. Information used to set up inc is read from 
+  <inp_oc>, which contrains following information 
+    line 1: 
+      nsp  natoc   charge ! nsp=0,1,2 for run_lapw, runsp_c_lapw or runafm_lapw, and runsp_lapw, respectively
+
+       ! nsp   --  0,1,2 for run_lapw, runsp_c_lapw or runafm_lapw, and runsp_lapw, respectively
+       ! natoc -- the number of atoms to which open-core treatment is added
+       ! charge -- the charge of the system, the number of valence electrons in case.in2 will be reset to be 
+       !           <nvel_orig> - <total number of electrons in open-core states> + <charge>  
+       !           this is used to implement different background neutralization schemes 
+
+    line 2 - natoc+1: 
+      iatoc(i) noc(i) loc(i) nel(i) conf(i) sh_inc(i) sh_in1(i) # i = 1 .. natoc
+
+       !  noc(i) -- principle quantum number of the oc state on each atom
+       !  loc(i) -- angular quantum number of oc state
+       !  nel(i) -- the number of electrons frozen in the oc state
+       !  conf(i) -- spin configuration concerning *.inc for each oc state
+       !               0 : paramagnetic
+       !               1 : spin up for majority configuration
+       !              -1 : spin dn as majority
+       ! sh_inc(1..natoc) -- shift applied to inc file, typically ~ 1.0, 
+                        adjust this value if some errors show up when running lcore 
+       ! sh_in1(1..natoc) -- shift applied to in1 file (typically ~ 20.0 ) 
+  ''' 
+  sys.exit(0)
+
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+debug     = f_Getopt('-d',   0, True  ) 
+case_name = f_Getopt('-f',   1, ''    )
+inp_oc    = f_Getopt('-i',   1, ''    )
+
+case_name = f_Check_Name(case_name)
+cmplx     = f_Check_Complex(case_name )
+nat       = w2k_get(case_name,'nat' ) 
+
+
+# read opencore input file (inoc)
+if inp_oc == '': inp_oc = case_name+".inoc"
+ifile = open( inp_oc,'r') 
+
+line = ifile.readline().split()
+nsp   = int(line[0])
+natoc = int(line[1]) 
+charge = float(line[2]) 
+
+if debug:
+  print "  nat =  ", nat
+  print "  nsp =  ", nsp
+  print "  natoc= ", natoc
+  print "  charge=", charge
+
+info_oc=[]
+nel_tot = 0.0
+for i in range(natoc):
+  line = ifile.readline().split()
+  iatoc = int(line[0])
+  noc   = int(line[1])
+  loc   = int(line[2])
+  nel   = float(line[3])
+  conf  = int(line[4]) 
+  sh_inc= float(line[5]) 
+  sh_in1= float(line[6])
+  nel_tot += nel 
+  info_oc.append([iatoc,noc,loc,nel,conf,sh_inc,sh_in1])
+  if debug: 
+    print "  open core at iat=%3d, n=%1d, l=%2d, nel=%4.1f, conf=%d,sh_inc=%4.1f sh_in1=%4.1f"%(iatoc,noc,loc,nel,conf,sh_inc,sh_in1)  
+  
+ifile.close() 
+
+# set input and output files for in1,in2,inc
+ifile_in1 = open(case_name+".in1"+cmplx,'r')
+ofile_in1 = open(case_name+".in1"+cmplx+'_oc','w') 
+      
+ifile_in2 = open(case_name+".in2"+cmplx,'r')
+ofile_in2 = open(case_name+".in2"+cmplx+'_oc','w') 
+
+ifile_inc = open(case_name+".inc"+cmplx,'r')
+if nsp == 0:
+  ofile_inc = open(case_name+".inc"+'_oc','w')
+else:
+  ofile_inc   = open(case_name+".incup"+cmplx+'_oc','w')
+  ofile_incdn = open(case_name+".incdn"+cmplx+'_oc','w')
+ 
+# copy the first 2 lines of in1
+io_copy_lines(ifile_in1,ofile_in1,2) 
+
+# loop over al atoms 
+for iat in range(1,nat+1):
+  
+  # check whether current atom is in iatoc
+  im = -1 
+  for i in range(natoc):  
+    if info_oc[i][0] == iat:     
+      im = i 
+      break 
+
+  # read/write inc 
+
+  line=ifile_inc.readline().split()
+  (norb,shift) = ( int(line[0]), float(line[1]))
+  (norb_new,shift_new) = (norb, shift) 
+  
+  iatoc = 0 
+  if im >=0: 
+    iatoc = info_oc[im][0]
+    noc   = info_oc[im][1]
+    loc   = info_oc[im][2]
+    nel   = info_oc[im][3]
+    conf  = info_oc[im][4]
+    sh_inc= info_oc[im][5]
+    sh_in1= info_oc[im][6]
+
+    occmax=2*loc+1.0
+    oup=[0.0,0.0]
+    odn=[0.0,0.0]
+    if debug: 
+       print "  Initialize for impurity atom ",im,iatoc
+       print "  Maximal occupation (excluding spin):",occmax
+
+    # set neup and nedn 
+    if conf == 0 :    # paramagnetic (or non-magnetic )
+      neup=nel/2.0
+      nedn=nel/2.0
+    elif conf == 1:
+      if nel <= occmax:
+        neup = nel
+        nedn = 0.0
+      else:
+        neup = occmax
+        nedn = nel-occmax
+    
+    elif conf == -1:
+      if nel <= occmax:
+        nedn = nel
+        neup = 0.0
+      else:
+        nedn = occmax
+        neup = nel-occmax
+
+    print "  neup,nedn=",neup,nedn
+
+    neup = neup*2.0
+    nedn = nedn*2.0
+
+    oup[0] = min(neup,2.0*loc)
+    oup[1] = max(0.0, neup-2.0*loc)
+    odn[0] = min(nedn,2.0*loc)
+    odn[1] = max(0.0,nedn-2.0*loc)
+
+    print "  occup    =",oup
+    print "  occdn    =",odn
+
+    norb_new = norb+2
+    shift_new = sh_inc
+  # end of if im >=0
+
+  ofile_inc.write("%2d%5.2f    NUMBER OF ORBITALS (EXCLUDING SPIN), SHIFT\n"%(norb_new,shift_new))
+
+  if nsp != 0: 
+    ofile_incdn.write("%2d%5.2f    NUMBER OF ORBITALS (EXCLUDING SPIN), SHIFT\n"(norb_new,shift_new))
+
+
+  for iorb in range(1,norb+1): 
+    line=ifile_inc.readline()
+    ofile_inc.write(line) 
+    if nsp != 0: ofile_incdn.write(line) 
+
+    # add additional core electrons 
+  if im >= 0:
+    ofile_inc.write("%1d,%2d,%4.2f    (N,KAPPA,OCCUP)\n"%(noc,   loc, oup[0]))
+    ofile_inc.write("%1d,%2d,%4.2f    (N,KAPPA,OCCUP)\n"%(noc,-loc-1, oup[1]))
+
+    if nsp != 0:
+      ofile_inc.write("%1d,%2d,%4.2f    (N,KAPPA,OCCDN)\n"%(noc,   loc, odn[0]))
+      ofile_inc.write("%1d,%2d,%4.2f    (N,KAPPA,OCCDN)\n"%(noc,-loc-1, odn[1]))
+
+#
+# read/write in1
+#
+  line = ifile_in1.readline().split()
+  etrial = float(line[0])
+  ndiff  = int(line[1])
+  napw   = int(line[2])
+
+  ofile_in1.write("%6.2f%5d%3d      (GLOBAL E-PARAMETER WITH n OTHER CHOICES, global APW/LAPW)\n"%(etrial,ndiff,napw))
+  for iorb in range(ndiff): 
+    line = ifile_in1.readline()
+    l  = int(line[0:2])
+    el = float(line[2:10])
+    de = float(line[10:21])
+    switch = line[22:26]
+    napwl  = int(line[26:28])
+
+    if im >= 0 and l == loc : 
+      ofile_in1.write("%2d%8.2f%11.3f %4s%2d\n"%(l,el+sh_in1,0.0,'CONT',napwl))
+    else:
+      ofile_in1.write("%2d%8.2f%11.3f %4s%2d\n"%(l,el,de,switch,napwl))
+
+
+# end of the in1 
+io_copy_lines(ifile_in1,ofile_in1,1)
+
+#
+# Read/write in2
+#
+io_copy_lines(ifile_in2,ofile_in2,1) 
+line=ifile_in2.readline().split()
+emin      = float(line[0])
+ne        = float(line[1]) - nel_tot  + charge
+esepermin = float(line[2])
+eseper0   = float(line[3])
+ofile_in2.write(" %10.1f%10.1f%5.2f%5.2f               EMIN, NE, ESEPERMIN, ESEPER0\n"%(emin,ne,esepermin,eseper0))
+
+if debug:
+  print "  reset nvel in case.in2 to",ne 
+
+io_copy_lines(ifile_in2,ofile_in2) 
+
+ifile_in1.close()
+ifile_in2.close()
+ifile_inc.close()
+ofile_in1.close()
+ofile_in2.close()
+ofile_inc.close() 
+if nsp !=0: ofile_incdn.close()   
+

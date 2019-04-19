@@ -1,0 +1,24 @@
+#!/bin/tcsh -f
+rm -f .testerror 
+
+  set ierr=0
+
+  ( ls *.error > .errfiles )  >& /dev/null
+  set errfiles = ( `cat .errfiles` )
+
+  foreach errfile ( $errfiles ) 
+    if !( -z $errfile ) then 
+      echo 'error found in' $errfile:r 
+      set ierr=1
+    endif 
+  end 
+
+if ( $ierr == 0 ) then 
+  echo 'no error found'
+  exit 0
+else
+  touch .testerror 
+  exit 1
+endif 
+
+ 

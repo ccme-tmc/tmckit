@@ -1,0 +1,350 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+from optparse import OptionParser
+import sys,os,copy,re,commands
+
+from py_utils import EmptyFormatter
+from qesp_utils import QESP_PW_input,QESP_PW_output,f_QE_DefaultRunCommand,f_QE_ReadBand,QESP_bands_input,QESP_plotband_input,f_QE_ReadFermi,f_QE_ExtendBand,f_QE_DetectSpeicalKPt,f_QE_GetSpecialKPt
+import common_caseutil
+from common_caseutil import debug_print,f_env_RunMpirunCommand,KPointsT
+from list_utils import f_List_angle3,f_List_Op_List
+import stat
+from band_utils import f_Band_DetectCrossing,f_Band_EstimateNumberOfConductionBand
+from py_plot import f_PlotBand
+
+common_caseutil.logLevel = 0
+#logLevel = 3
+
+#Global filename to store aligned band structure
+stDataName = "pq_band.txt"
+
+#stripped from WIEN2k example
+
+def f_InRange(a,min,max):
+    return ( a <= max and a >= min)
+
+def QESP_CreateBand(stFileNameIn,stFileNameOut=None,st_kpSet=None,nkpDensity=0,listkpCount=None,stCrossMode='sym',fExtendBand=1.2,nProcess=-1):
+    '''
+    Create a band calculation input from completed nscf calculation
+    :param st_kpSet: specify band special k-points ( c, fcc,bcc and hcp can be used ). If not set, use that auto-detected
+    :param nkpDensity: specify number of k-points along one line ( typically k-points from 0,0,0 to 0,0,0.25 )
+    :param listkpCount: specify k-points in a list. If used, the parameters before will not be used. The format is  [[a,b,c,weight],[....],...]
+    :param stCrossMode: specify the band-cross detect method. "sym" and "overlap" means use those property of wavefunction. 
+    '''
+    if ( stCrossMode != "diff" and stCrossMode != "none" and stCrossMode != "sym" and stCrossMode != "overlap"):
+        raise ValueError,"Unrecoginzed band-crossing option %s" % stCrossMode
+    
+    stCase = ".".join(stFileNameIn.split('.')[0:-1])
+    qIn = QESP_PW_input(stFileNameIn)
+    
+    if ( fExtendBand != None):
+        f_QE_ExtendBand(qIn,stFileNameOut,fExtendBand)
+    else:
+        nExtra =f_Band_EstimateNumberOfConductionBand(qIn.GetCell()) 
+        qIn.AddValue("system","nbnd",qOut.nElectron/2+nExtra)
+       
+    qIn.calculation = 'bands'
+    qIn.stKPtMode = "tpiba_b"
+    
+    if ( listkpCount != None):
+        qIn.listKPt = listkpCount
+    else:
+        dic_kpt = {2:"fcc",3:"bcc",4:"hcp"}
+        st_kpSetUse =st_kpSet 
+        if ( st_kpSetUse == None):
+            list_kp = f_QE_DetectSpeicalKPt(qIn.ibrav)
+        else:
+            list_kp = f_QE_GetSpecialKPt(st_kpSetUse)
+        nDensity = nkpDensity if (nkpDensity != None and nkpDensity != 0) else list_kp[-1][2]
+        if ( nkpDensity == None or nkpDensity == 0):
+            print("Use default k-points density.")
+        qIn.listKPt = [ x[1][0:3] + [int(1.0*x[2]*nDensity/list_kp[-1][2])]  for x  in list_kp ]
+        #write a temporary file include special point name
+        fPt = open("pq_band.klist","w")
+        n = 1
+        fPt.write("%d\t%s\n" % (1,list_kp[0][0]))
+        for i in range(1,len(list_kp)):
+            n += int(1.0*list_kp[i-1][2]*nDensity/list_kp[-1][2])
+            fPt.write("%d\t%s\n" % (n,list_kp[i][0]))
+        fPt.close()
+        #qIn.listKPt.append(list_kp[-1][1] + [nDensity])
+    
+    stNewName = stCase+"_band.in"
+    qIn.WriteToFile(stNewName)
+    
+    
+    if ( nProcess != -1):
+        print("%s is created. Calculating band..." % stNewName)
+        f_env_RunMpirunCommand(f_QE_DefaultRunCommand(stCase+"_band"),nProcess)
+    else:
+        print("%s is created. Please use pw.x to calculate the band structure." % stNewName)
+    
+    #band crossing solve method
+    if ( stCrossMode == "none" or stCrossMode == "diff"):
+        #other steps are not used
+        bAddCross = False
+        if ( stCrossMode == "diff"):
+            bAddCross = True
+        QESP_PlotBand(stCase+"_band.out",bAddCross,None)
+        return
+    
+    
+    #Create bands.x input file
+    qBandsIn = QESP_bands_input()
+    qBandsIn.prefix = qIn.prefix
+    qBandsIn.outdir = qIn.outdir
+    qBandsIn.filband = stCase+"_bands.dat"
+    if ( stCrossMode == "sym"):
+        qBandsIn.lsym = True
+    elif ( stCrossMode == "overlap"):
+        qBandsIn.lsym = False
+    else:
+        print("Unknown band-crossing detection method '%s'." % stCrossMode)
+        return
+    qBandsIn.WriteToFile(stCase + "_bands.in")
+    
+    if ( nProcess != -1):
+        print("Rewrite the bands ordering by %s of wavefunction. Processing..." % stCrossMode)
+        f_env_RunMpirunCommand(f_QE_DefaultRunCommand("%s_bands" % stCase,"bands.x"),1)
+    else:
+        print("%s is created. Please use bands.x < %s." % (stCase+"_bands.in",stCase+"_bands.in"))
+        
+    if ( nProcess != -1):
+        #use home-made band plotting
+        QESP_PlotBand(qBandsIn.filband,False,0.0) #Set Fermi to as data is aligned
+      
+    
+    #use plotband.x
+    #QESP_PlotBandx(stCase,stCase+"_bands.in",stCase+"_band.out",bRun)
+
+def QESP_PlotBandx(stCase,stBandFileNameIn,stBandFileNameOut,bRun=False):
+    '''
+    Create plotband.x input file
+    If previous calculation is not completed, do not draw it !
+    '''
+    stCase = ".".join(stBandFileNameIn.split('.')[0:-1])
+    
+    qBandsIn = QESP_bands_input(stBandFileNameIn)
+    
+    stNewName = stCase+"_plotband.in"
+    qPlotIn = QESP_plotband_input()
+    qPlotIn.stFile = qBandsIn.filband
+    qPlotIn.stXM = stCase+"_band.xmgr"
+    qPlotIn.stPS = stCase+"_band.ps"
+    #read band range
+    if ( os.path.exists(stCase + "_band.out")):
+        list_band,list_kp = f_QE_ReadBand(stCase + "_band.out")
+    else:
+        list_band,list_kp = f_QE_ReadBand(stBandFileNameOut)
+    qPlotIn.fMinEnergy = float(int(min([min(x) for x in list_band])-1))
+    qPlotIn.fMaxEnergy = float(int(max([max(x) for x in list_band])+1))
+    
+    #try read dos
+    if ( os.path.exists(stCase+"_dos.out")):
+        qPlotIn.fFermi = QESP_PW_output(stCase+"_dos.out").fFermi
+    
+    qPlotIn.WriteToFile(stNewName)
+
+    if ( bRun):
+        #remove rap file to allow plotband.x to create total file
+        if ( os.path.exists(stCase+"_bands.dat.rap")):
+            print("Rename dat.rap to dat.rapold")
+            os.rename(stCase+"_bands.dat.rap", stCase+"_bands.dat.rapold")
+        print("Draw band structure...")
+        f_env_RunMpirunCommand(f_QE_DefaultRunCommand("%s_plotband" % stCase,"plotband.x"),1)
+        print("Band structure calculation complete, please see results in %s ( figure ), %s ( 2-col raw data ), %s ( k-e raw data )" % (qPlotIn.stPS,qPlotIn.stXM,qPlotIn.stFile ))
+    else:
+        print("%s is created. Please modify the fermi level (-999) in it and use plotband.x < %s to draw." % stNewName)    
+
+def QESP_PlotBand(stFileName,bAddCross=True,fFermi1=None):
+    '''
+    Plot band structure
+    .dat from bands.x / output of pw.x /pq_band.txt from this program and are supported
+    '''
+    fFermi = fFermi1 # discern none and 0
+    if ( fFermi1 == None):
+        fFermi1 = f_QE_ReadFermi()
+        fFermi = fFermi1
+
+    #check if band.klist exist
+    list_name = []
+    if ( os.path.exists("pq_band.klist")):
+        fIn = open("pq_band.klist")
+        list_name = [[int(x.split()[0]),(x.split()[1])]  for x in fIn.readlines()]
+        
+    
+    fIn = open(stFileName,'r')
+    list_kp = []
+    list_band = []
+    list_stLine = fIn.readlines()
+    fIn.close()
+    
+    if ( 'plot' in list_stLine[0]): #.dat from bands.x
+        nCount = int(list_stLine[0][22:29])
+        j= 1
+        for i in range(0,nCount):
+            list_kp.append([float(x)-fFermi for x in list_stLine[j].split()])
+            j += 1
+            stLine = list_stLine[j]
+            listTmp = []
+            while ( stLine[4] != ' '):
+                listTmp += [float(x)-fFermi for x in stLine.split()]
+                j += 1
+                if ( j >= len(list_stLine)):
+                    break
+                stLine = list_stLine[j]
+            list_band.append(listTmp)
+    else:
+        if ( "out" in stFileName): #output from pw.x
+            #Process data to stDataName and read it
+            QESP_ReadBand(stFileName,bAddCross,fFermi1)
+            fIn = open(stDataName)
+            list_stLine = fIn.readlines()
+            fIn.close()
+            
+        for i in range(0,len(list_stLine)):
+            tmp = [float(x) for x in list_stLine[i].split()]
+            list_kp.append(tmp[0:3])
+            list_band.append(tmp[3:])
+    
+    #Convert to aKPt
+    aKPt = KPointsT()
+    aKPt.ReadFromList(list_kp)
+    for name in list_name:
+        aKPt.listKPt[name[0]-1][0] = name[1]
+
+    #f_PlotBand(aKPt, list_band, fFermi1, stPrefix="pq_band")
+    #Data is already processed to fit fermi energy, so fermi energy in plot is always 0
+    f_PlotBand(aKPt, list_band, 0.0, stPrefix="pq_band")
+
+    #f_PlotBand(list_name, list_kp, list_band, fFermi1, stPrefix="pq_band")
+    return
+
+def QESP_CreateBand_kvecsFS(stFileNameIn,stFileNameOut,listkpCount):
+    '''
+    Create a band calculation input from completed scf calculation
+    Currently, useless
+    '''
+    qIn = QESP_PW_input(stFileNameIn)
+    qOut = QESP_PW_output(stFileNameOut)
+    
+    #Build kvecs_FS.x input
+    fkvecsIn = open("kvecs_FS.in",'w')
+    for kVec in qOut.arkVector:
+        for k in kVec:
+            fkvecsIn.write(str(k) + ' ')
+        fkvecsIn.write('\n')
+    for n in listkpCount:
+        fkvecsIn.write(str(n) + ' ')
+    fkvecsIn.write('\nauto')
+    fkvecsIn.close()
+    
+    #run 
+    commands.getstatusoutput("kvecs_FS.x < kvecs_FS.in")
+    
+    #read k-points
+    qIn.calculation = 'bands'
+    qIn.stKPtMode = "tpiba"
+    qIn.listKPtGrid = []
+    
+    fIn = open("kvecs_auto")
+    list_stLine = fIn.readlines()
+    nCount= int(list_stLine[0].strip())
+    qIn.listKPt = []
+    for i in range(1,nCount+1):
+        qIn.listKPt.append([float(x) for x in list_stLine[i].strip().split()])
+    
+    qIn.WriteToFile(stFileNameIn.split('.')[0]+"_bands.in")
+
+                                
+def QESP_ReadBand(stFileName,bAddCross=True,fFermi=None):
+    '''
+    Read band sturcture from pw.x output file. Bands are sorted by energy.
+    :param bAddCross: use home-made derivative based band-crossing method
+    :param fFermi: Fermi energy
+    '''
+    if ( fFermi == None):
+        fFermi = 0
+    list_band,list_kp = f_QE_ReadBand(stFileName)
+    aKPt = KPointsT()
+    aKPt.ReadFromList(list_kp)
+    #Test Data
+    #list_band = [[-1.786,0.3348,4.0102,4.0102,4.0292,4.0293],[-1.7341,0.3832,3.8418,3.8656,3.9166,3.9391],[-1.5788,0.528,3.3621,3.3973,3.6565,3.686],[-1.3209,0.7681,2.6321,2.6826,3.2783,3.3148],[-0.9617,1.1012,1.7228,1.7909,2.8356,2.8779],[-0.5034,0.698,0.785,1.5237,2.3743,2.4212],[-0.3919,-0.2854,0.0504,1.9289,1.9792,2.0297]]
+    #list_band = [[-3.4181,-3.3361,-2.0821,-2.0201,3.4747,5.0359],[-2.5695,-2.4954,-1.2469,-1.1907,2.4449,4.1649],[-1.6499,-1.5839,-0.365,-0.3156,1.4962,3.3343],[-0.6719,-0.6141,0.5345,0.5768,0.6495,2.5761],[-0.082,0.3447,0.3943,1.4175,1.453,1.911],[-0.6893,1.3531,1.3677,1.4092,2.243,2.2725],[-1.1666,0.9114,2.3447,2.3784,2.9628,2.9876],[-1.5099,0.5922,3.1922,3.2188,3.5263,3.5478],[-1.7169,0.3993,3.7903,3.8113,3.8867,3.9061],[-1.786,0.3348,4.0102,4.0102,4.0292,4.0293],[-1.7559,0.2892,4.0105,4.0105,4.0289,4.0289]]
+    #end test
+    if ( bAddCross):
+    #Detect turning point in k-point list
+        #list_turnpt = [] 
+        #for i in range(1,len(list_kp)-1):
+        #    dAngle= f_List_angle3(f_List_Op_List(list_kp[i-1],"-",list_kp[i]),f_List_Op_List(list_kp[i],"-",list_kp[i+1]))
+        #    if ( dAngle > 0.01):
+        #        list_turnpt.append(i)
+        #stOut = "Detected turning point of k-point: "
+        #for i in list_turnpt:
+        #    stOut += "%d " % (i+1)
+        #debug_print(1,stOut)
+        list_band = f_Band_DetectCrossing(list_band,aKPt.GetTurningPoint())  
+    #sometimes the cross detection is not complete due to algorithm failure, so do it again
+    #list_band = QESP_DetectBandCrossing(list_band)
+    fOut = open(stDataName,'w')
+    for i in range(0,len(list_band)):
+        fOut.write("%f\t%f\t%f" % tuple(list_kp[i]))
+        for band in list_band[i]:
+            fOut.write("\t%f" % (band-fFermi))
+        fOut.write("\n")
+    fOut.close()
+            
+
+def Main(ArgList):
+    description = '''Create band calculation input from completed scf calculation and/or plot it. 
+Band crossing resolving is important, none/diff/sym/overlap can be used here. 
+If -m = sym/overlap, bands.x and plotband.x from Quantum-Espresso are used.          
+If -m = none/diff, bands are directly from pw.x output. "diff" method deal with cross by reduce distortion which is faster but not as good as bands.x .
+If -m = none/diff, a file "pq_band.txt" will be created, the first 3 columns are k-points and other columns are energy levels.                                                       
+When plotting individually, use -s option. PW.x output ,bands.x datafile and pq_band.txt are all readable. 
+Files with prefix "pq_band" contains results, including .dat/.gp/_gp.ps ( gnuplot graph ) and .agr/_xm.ps ( xmgrace graph ) 
+    '''
+    usage="usage: pq_band -i SCFinput,SCFoutput -m none/diff/sym/overlap [-p ProcessCount] OR pq_band -i Bandoutput -s [-r]"
+    parser = OptionParser(formatter=EmptyFormatter(),usage=usage,description=description)
+    #create part
+    parser.add_option("-i",dest="stFile",help="The name of scf input file,output file")
+    
+    parser.add_option("-l","--latt",dest="stLatt",help="Specify the k-points set in calculation ( bcc,fcc,hcp and simple_cubic supported, auto detect if not specified)")
+    parser.add_option("-n",dest="nDensity",default="0",help = "Number of k-points along shortest line,default 10 for fcc/bcc or 5 otherwise")
+    parser.add_option("-m",dest="stCrossMode",default="none",help="The method of determine band crossing. 'none' means plot as energy order, 'diff' by energy-kp derivate, 'overlap' by wave function overlap, 'sym' by wave function symmetry")
+    parser.add_option("-b",dest="st_nbnd",default="1.2",help="Count of bands in dos calculation, relative to occupied states")
+    
+    # read from pw.x output part and plot it
+    parser.add_option("-s",dest="bShow",action="store_true",default=False,help="Read bands from pw.x output, bands.x output or pq_band.dat")
+    parser.add_option("-r",dest="bResolveCross",action="store_true",default=False,help="Try to resolve band crossing by reducing band distortion, only affect when reading pw.x output")
+    parser.add_option("--fermi",dest="stFermi",help="Fermi Energy to set as 0 in plotting. If not used, it will be read from pq_dos.out if available")
+     
+    #run part
+    parser.add_option("-p",dest="stProcess",default="-1",\
+        help="Process Count; If set to 0, use hostfile; If set to -1, only input files are created without running real calculations. Default -1")
+    #parser.add_option("-v",dest="stVersion",default="5.0",\
+    #    help="The version of QE used: the interface for QE 5.0 and newer differ from the older ones")
+    
+    
+    (options,args) = parser.parse_args(ArgList)
+    
+    if ( len(args) != 1 ):
+        parser.error("incorrect number of arguments.")
+           
+    if ( options.bShow):
+        if ( options.stFermi != None):
+            QESP_PlotBand(options.stFile,options.bResolveCross,float(options.stFermi))
+        else:
+            QESP_PlotBand(options.stFile,options.bResolveCross)
+        return
+        
+    #Split file1 and file2
+    if ( not "," in options.stFile):
+        print('Two file in format "file1,file2" must be specified')
+        return
+    (stFile1,stFile2) = [x.strip() for x in options.stFile.split(",")]
+    QESP_CreateBand(stFile1,stFile2,st_kpSet=options.stLatt,nkpDensity=float(options.nDensity),stCrossMode=options.stCrossMode,fExtendBand=float(options.st_nbnd),nProcess=int(options.stProcess))
+
+if __name__ == "__main__":
+    Main(sys.argv)    

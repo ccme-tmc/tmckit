@@ -1,0 +1,107 @@
+#!/usr/bin/env python
+import sys,os,shutil,os.path
+import numpy
+from struct_utils import *
+from constants    import *
+from vasp_utils_jh import * 
+from io_utils     import *
+from data_utils   import * 
+from band_utils   import f_Band_GetGap
+
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to scan volume in VASP \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Using the POSCAR as the initial structure file, a series of structural optimization 
+  calculations with fixed volume are going to conducted 
+
+  Options:
+    -D                # set the debug mode
+    -h                # display this help information
+    -i   <inp_dir>    # where the input files are stored 
+    -np  <nproc>         # parallel running
+    -nx  <nx=5>
+    -o   <out_dir=''> # the name for the output directory, also used as the prefix for other files 
+    -v   <vol_str="0.98:0.99:1.00:1.01:1.02">
+    -xs  <xstep=0.01>
+  Examples:
+  """
+  sys.exit(0)
+
+#--------------------------------------------------------------------#
+#                         main body of the script                    #
+#--------------------------------------------------------------------# 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+debug   = f_Getopt('-D',0,False)
+inp_dir = f_Getopt('-i',1, '.' ) 
+nproc   = f_Getopt('-np', 1, 1 ) 
+nx      = f_Getopt('-nx',1,5   ) 
+out_dir = f_Getopt('-o', 1, '')
+vol_str = f_Getopt('-v', 1,''  ) 
+xstep   = f_Getopt('-xs',1,0.01)
+
+if out_dir == '':
+  out_dir = '.'
+  file_prefix='vol'
+else:
+  file_prefix=out_dir 
+
+# generate the list of volumes (relative) to be scanned
+x_vols = []
+if vol_str == '':
+  for i in range(-(nx/2),nx/2+1):
+    x = 1.0 + i*xstep
+    x_vols.append(x) 
+else:
+  tmp=vol_str.split(':') 
+  for i in range(len(tmp)):
+    x = float(tmp[i]) 
+    x_vols.append(x) 
+
+print x_vols  
+init_files = ["INCAR","POTCAR","KPOINTS","POSCAR"]
+
+if not os.path.isdir(out_dir):
+  if debug: print "Create the output directory "+out_dir
+  os.mkdir(out_dir)
+
+# get the current working directory
+wdir = os.getcwd()
+print "Current working directory:",wdir
+run_log = 'run.log'
+
+results=[]
+for x in x_vols:
+  # create the sub-directory and copy the files 
+  dir_job = out_dir+"/x%s"%(x) 
+
+  if not os.path.isdir(dir_job):
+    os.mkdir(dir_job) 
+
+  for f in init_files: shutil.copy(inp_dir+'/'+f,dir_job)
+
+  os.chdir(dir_job)
+
+  vasp_set_vol(x) 
+
+  vasp_run(nproc,out=run_log) 
+  vol = vasp_getout('vol','OUTCAR')
+  etot = vasp_getout('etot','OUTCAR') 
+  print ":vol= %12.6f Etot= %12.6f"%(vol,etot)
+  results.append([x,vol,etot]) 
+  os.chdir(wdir) 
+
+print results
+  
+results_file = file_prefix+".dat"
+ofile = open(results_file,'w') 
+ofile.write("#%11s %12s\n"%("Vol","Etot/eV"))  
+for i in range(len(results)):
+  ofile.write("%12.6f %12.6f\n"%(results[i][1],results[i][2]))
+ofile.close() 
+
+

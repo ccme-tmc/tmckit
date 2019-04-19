@@ -1,0 +1,68 @@
+#!/usr/bin/env python
+## this file contains functions used for embedded cluster model (ECM) calculations
+import sys,os,shutil
+import commands,string
+from math import *
+from numpy import *
+from io_utils import *
+from data_utils import *
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": this script fits a given set of data by a polynomial f(x) \
+  and then gives the root for f(x) == <val>  \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -h                    # display this help information
+    -f <data_file_name>   # the data file name 
+    -m <mode>             # 
+    -n <nfit>             # the order of the fitting function, can be 1, 2, ,..
+    -v <val> 
+  """
+  sys.exit(1)  
+
+def_debug = False
+def_mode = 0
+def_file=''
+def_val = 0.0 
+def_nfit=2
+
+if f_Getopt('-h',0,False): f_Help_Info()
+file = f_Getopt('-f',1,def_file)
+mode = f_Getopt('-m',1,def_mode)
+val  = f_Getopt('-v',1,def_val)
+nfit = f_Getopt('-n',1,def_nfit) 
+
+if file == '':
+  print "ERROR: the name of the data file is missing!"
+  f_Help_Info()
+
+data = f_Read_Data(file)
+nrow = len(data)
+ncol = len(data[0])
+
+xdata=[]
+ydata=[]
+for i in range(nrow):
+  xdata.append(float(data[i][0]))
+  ydata.append(float(data[i][1]))
+
+coef = polyfit(asarray(xdata),asarray(ydata),nfit)
+
+if nfit == 2: 
+  a = coef[0]
+  b = coef[1]  
+  c = coef[2]-val
+
+  x1 = (-b + sqrt(b*b-4*a*c))/(2*a)
+  x2 = (-b - sqrt(b*b-4*a*c))/(2*a)
+
+  # check which root is in the range of x's
+  # !!! to do
+  xroot = x1
+elif nfit == 1:
+  xroot = (val - coef[1])/coef[0]
+  
+print "#the_root_to_f(x)== %-12.6f ==> %12.6f"%(val,xroot)
+

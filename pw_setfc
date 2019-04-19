@@ -1,0 +1,50 @@
+#!/usr/bin/env python
+import sys,os,shutil
+from w2k_utils import *
+from struct_utils import *
+from io_utils import *
+
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to set frozen-core calculations \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:  
+    -f <case_name>    # case name 
+    -h                # print out this information 
+    -m <mode>         # the mode to setup frozen-core 
+                      #  0 -- all core states defined in the original case.inc are treated 
+                      #  1 --  
+    -em <emfc>  # core states lower than this value are all frozen   
+  """
+  sys.exit(0)
+
+def_mode   = 1 
+def_emfc = None
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+casename = f_Getopt('-f', 1, '')
+mode     = f_Getopt('-m', 1, def_mode)
+eminfc   = f_Getopt('-em',1, def_emfc) 
+
+
+casename = f_Check_Name(casename)
+
+#
+# get npval_min from case.in1
+#
+natom = f_Get_Natom(casename)
+cmplx = f_Check_Complex(casename) 
+
+ifile = open(casename+".in1"+cmplx,'r')
+f_Skip_Lines(ifile,2) 
+
+npval_min=[]
+for i in range(natom):
+  line = ifile.readline()
+  norb = int(line.split()[1])
+  for iorb in range(norb):
+   
+

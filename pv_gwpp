@@ -1,0 +1,61 @@
+#!/usr/bin/env python
+import sys,os,shutil
+import numpy
+from struct_utils   import *
+from bandstruct     import *
+from constants      import *
+from vasp_utils_jh  import * 
+from io_utils       import *
+from data_utils     import * 
+
+def f_Help_Info():
+  myname = sys.argv[0]
+  print "\n"+myname + ": a Python script to analyze GW results \n"
+  print "   Usage: " + os.path.basename(myname) + " [options]"\
+  + """
+  Options:
+    -D                 # set the debug mode
+    -h                 # display this help information
+    -f   <outfile>     # the prefix for various output files 
+    -gw  <gw_mode>     # what kind of GW calculation(G0W0,GW0,GW,QPGW...)
+  Examples:
+  """
+  sys.exit(0)
+
+#--------------------------------------------------------------------#
+#                         main body of the script                    #
+#--------------------------------------------------------------------# 
+
+if f_Getopt('-h',0,False): f_Help_Info()
+
+debug    = f_Getopt('-D',0,False)
+gw_mode  = f_Getopt('-gw',1,'G0W0') 
+outfile  = f_Getopt('-f',1,'OUTCAR') 
+
+(kvecs,ebands_gw,evbm_gw, ecbm_gw, ebands_ks, evbm_ks, ecbm_ks) = vasp_read_gwout(outfile)
+
+print "GW: E_VBM = %8.3f, E_CBM = %8.3f (eV)"%(evbm_gw,ecbm_gw)
+
+print "KS: E_VBM = %8.3f, E_CBM = %8.3f (eV)"%(evbm_ks,ecbm_ks)
+
+band_gap_analysis([ebands_ks],evbm_ks,kvecs,emax=15.0,title="KS band Analysis")
+
+band_gap_analysis([ebands_gw],evbm_gw,kvecs,emax=15.0,title="GW band Analysis")
+
+# write out the GW correction vs LDA/GGA orbital energies 
+
+print "write out the GW correction data into gwcorr.dat"
+
+ofile = open("gwcorr.dat",'w')
+for ik in range(len(kvecs)):
+  k=kvecs[ik]
+  ofile.write("# ik=%6d k=(%12.6f,%12.6f,%12.6f)\n"%(ik+1,k[0],k[1],k[2]))
+  for ib in range(len(ebands_ks[ik])):
+    eks = ebands_ks[ik][ib]-evbm_ks
+    egw = ebands_gw[ik][ib]-evbm_gw
+    cor = ebands_gw[ik][ib] - ebands_ks[ik][ib]
+    ofile.write("%6d %12.6f %12.6f %12.6f\n"%(ib+1,eks,egw,cor))
+
+ofile.close()
+ 
+

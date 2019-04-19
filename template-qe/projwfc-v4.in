@@ -1,0 +1,9 @@
+&inputpp
+	outdir = './out'
+	prefix = 'None'
+	Emin = -30.0
+	Emax = 30.0
+	DeltaE = 0.1
+	ngauss = 1
+	degauss = 0.02
+/

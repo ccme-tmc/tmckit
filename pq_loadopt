@@ -1,0 +1,81 @@
+#!/usr/bin/env python
+
+from __future__ import print_function
+from optparse import OptionParser
+import sys,os,copy,re,commands,stat
+
+from py_utils import EmptyFormatter
+from qesp_utils import QESP_ld1_input,QESP_PW_input,QESP_PW_output,f_QE_LoadOptimizedCell
+
+def QESP_BatchLoadCell(stFolder,stOutputFolder,bNoSym):
+    '''
+    Read a series of input/output file in one folder, replace structures in input with that in output ( optimized ).
+    '''
+    #check output dir
+    if ( not os.path.exists(stOutputFolder) ):
+        os.mkdir(stOutputFolder)
+    
+    reIn= re.compile("(.*)\.in")
+    
+    for stFileName in os.listdir(stFolder):
+        aMatch = reIn.match(stFileName)
+        if ( aMatch != None):
+            stCaseName = aMatch.group(1)
+            stInName = os.path.join(stFolder,stFileName)
+            stOutName = os.path.join(stFolder,stCaseName+".out")
+            stNewName = os.path.join(stOutputFolder,stCaseName+".in")
+            if ( os.path.exists(stOutName)):
+                f_QE_LoadOptimizedCell(stInName,stOutName,stNewName,bNoSym)
+            else:
+                print("Input file of %s is found but output is not." % stCaseName)
+         
+
+def Main(ArgList):
+    description = '''Load optmized cell into original input file for later calculation. In vc-relax, the symmetry of cell may break, which must be specified explicitly.
+    Example:
+    #   pq_loadopt -a --nosym # read all out optimized file in the folder, treat as no symmetry, output them
+    #   pq_loadopt -i Si.in,Si.out -o Si_opt.in # read optimized structure from FileOut to FileIn, write into NewFileIn
+    '''
+    usage="usage: "
+    parser = OptionParser(formatter=EmptyFormatter(),usage=usage,description=description)
+    parser.add_option("-a",dest="bAll",action="store_true",default=False,help="Read ")
+    parser.add_option("-d",dest="stFolder",default="Optmizied",help="Directory to place all new input files. Used with -a option.")
+    parser.add_option("--nosym",dest="bNoSym",action="store_true",default=False,help="No symmetry will be used in output load. By default, the original cell symmtery is assumed. Currently program will not attempt to find symmetry and output cell is always triclinic.")
+    parser.add_option("-i",dest="stInput",help="Original Input file,outputfile")
+    parser.add_option("-o",dest="stOutput",help="New input file name")
+    (options,args) = parser.parse_args(ArgList)
+    if ( len(args) != 1 ):
+        parser.error("incorrect number of arguments.")
+
+        
+    if ( options.bAll):
+        if ( options.stInput == None):
+            options.stInput = "."
+        if ( options.stOutput == None):
+            options.stOutput = "Optimized"
+        QESP_BatchLoadCell(options.stInput,options.stOutput,options.bNoSym)
+    else:
+        if ( not "," in options.stInput):
+            print('Two file in format "file1,file2" must be specified')
+            return
+        (stFile1,stFile2) = [x.strip() for x in options.stInput.split(",")]        
+        qIn = QESP_PW_input(stFile1)
+        qOut = QESP_PW_output(stFile2)
+        if ( not qOut.bFinalReached ):
+            print("No relax result is obtained. Please check output file.")
+            return 1
+        #Record atom position fix mode 
+        listFix = []
+        for atom in qIn.listInnerCoord:
+            listFix.append(atom[4:7])
+
+        qIn.ReadFromCell(qOut.arLattice[-1])
+
+        for i,Atom in enumerate(qIn.listInnerCoord):
+            Atom[4:7] = listFix[i]
+
+        qIn.WriteToFile(options.stOutput)
+         
+
+if __name__ == "__main__":
+    Main(sys.argv)

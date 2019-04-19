@@ -1,0 +1,245 @@
+#!/bin/tcsh -f
+#   run_gwxnvf
+#    This shell-script generated GW corrected Kohn-Sham energies and orbitals 
+#    by calling task_nvf in the GW code 
+#
+
+  set fullname=$0
+  set bindir=$fullname:h
+  set name=$fullname:t
+  echo ""
+  echo "---- $name : generate GW corrected energies and wavefunctions -----"
+  echo ""
+
+  alias sb 'shift; breaksw'       #definition used in switch
+
+  alias exec   '(x_lapw  -f $file \!:*) ; (if ($status) goto error); (echo " running " \!:*) >>$logfile'
+  alias output 'echo  \!:* | tee -a $file.outdos'
+
+  set restart=0
+  set ierr_gw = 0
+  set soflag=''
+  set sp=0
+  set gwtag
+  set taskflag
+  set kip=0
+  set gwexe=gwx
+
+  unset so
+  unset nkp
+  unset file
+  unset lattice 
+  unset gwdir
+  unset help
+  while ($#argv)
+    switch ($1)
+    case -f:
+      shift; set file=$1;  sb
+    case -gw: 
+      shift; set gwexe=$1; sb 
+    case -gwdir:
+      shift; set gwdir=$1; sb 
+    case -kip: 
+      shift; set kip=$1; sb 
+    case -tag:
+      shift; set gwtag=$1;  sb 
+    case -s:
+      shift; set sp=$1; sb  
+    case -t: 
+      shift; set taskflag="_$1"; sb 
+    case -h:
+      goto help  
+    default:
+      echo "$name - Undefined option: $1 !" 
+      goto help ; sb
+    endsw
+  end
+
+#-----------------------------------------------------------------------#
+#                  Initilization                                        #
+#-----------------------------------------------------------------------#
+
+  echo 
+  echo '--- Initilization ---'
+  echo 
+  
+  # if $file not set, set default vaule of the filename to the name of the working directory
+  # make some simple tests to be sure $file is correct 
+  set wdir=`pwd`
+  if !($?file) then
+    set file=$wdir:t
+  endif
+
+  if !(-e $file.struct ) then 
+    echo " ERROR: Current directory does not have $file.struct!" 
+    goto error 
+  endif 
+
+  set GWINP="gw.inp"
+
+  # check gw and gwdir 
+  echo "* Check gwexe and gwdir *"
+  echo "gwexe: " $gwexe 
+  if !(-e `which $gwexe`) then 
+    output "ERROR: GW program $gwexe can not be found"
+    goto error 
+  endif 
+
+  if !($?gwdir) then
+    output " ERROR: gwdir is not defined!! "
+    goto error 
+  else 
+    if !( -e $gwdir) then 
+      output ' ERROR: gwdir does not exist!'
+      goto error  
+    else 
+      if( !( -e $gwdir/$GWINP ) ) then 
+        output ' ERROR: gwdir does not contain gw files!'
+        goto error 
+      endif 
+    endif 
+  endif  
+  output 'gwdir: ' $gwdir
+
+  switch( $sp )
+  case 0:
+    set spflag=''; breaksw
+  case 1:
+    set spflag='up'; breaksw
+  case 2:
+    set spflag='{up,dn}'; breaksw
+  endsw
+  output '  spflag = ' $spflag
+  set filelist = ( vector$spflag energy$spflag )
+
+#
+#  Setup files for task_nvf
+#
+  echo 
+  echo "--- setup files for task_nvf ---"
+  echo 
+
+  cd $gwdir
+  set GWOUT=$file.outgw 
+
+  # make a bakup copy of the original input and output files 
+  mv -f $GWINP ${GWINP}_bak
+  mv -f $GWOUT ${GWOUT}_bak
+
+  # create new gwinp 
+  awk -v task='nvf' '{if(index($0,"Task")){$3 = "\""task"\""};print $0}' ${GWINP}_bak  >> $GWINP
+
+  ## check whether nvf block is already existing  
+  grep -q '%kMeshIntp' $GWINP  
+  if( $status ) then
+    echo ''>> $GWINP
+    echo '# input block for task_nvf'>> $GWINP   
+    echo '%kMeshIntp' >> $GWINP
+    echo $kip '  | "'$gwtag'"    # interpolation method | tag for the QP energy file' >> $GWINP
+    echo '%' >> $GWINP
+  else 
+    mv -f $GWINP $GWINP-tmp
+    awk -v m=$kip -v tag=$gwtag -v count=0 '{ \
+        if(index($0,"%kMeshIntp")) {print $0; count++} \
+        else if (count==1) {print m "  |    \"" tag "\""; count++} \
+        else if (count==2) {print "%"; count=0 } else {print $0 } }' $GWINP-tmp > $GWINP
+    rm -f $GWINP-tmp   
+  endif 
+
+  foreach ext ( $filelist )
+    mv  $file.$ext $file.${ext}_bak
+    cp  $wdir/$file.${ext} ./ 
+  end
+   
+  if($sp == 1) then
+    mv $file.energyup $file.energy
+    mv $file.vectorup $file.vector
+  endif 
+
+#
+#  run task_nvf
+#
+  echo 
+  echo "--- run task_nvf ---"
+  echo 
+
+  output ' <<<< run gwx <<<<' 
+  $gwexe  
+
+  set gw_status=$status
+  set gw_success=`grep "ERROR" $GWOUT; echo $?` 
+
+  if( $gw_status || (! $gw_success) ) then 
+    echo 
+    echo 'ERROR when running task_nvf'
+    set ierr_gw=1
+    goto recover_gw
+  endif 
+  output ' >>>> done    >>>> ' 
+
+#
+# mv output files of task_nvf to the working diretory
+#
+  echo 
+  echo " --- get task_nvf output files ---"
+  echo 
+ 
+  echo "check whether gwtag is set"  
+  if( $gwtag == '' ) then 
+    set gwtag='gw'
+  endif 
+  echo "gwtag=" $gwtag
+
+  if( $sp == 1 ) then 
+    mv  $file.energy_nvf $wdir/$file.energyup${taskflag}_$gwtag
+    mv  $file.vector_nvf $wdir/$file.vectorup${taskflag}_$gwtag 
+  else 
+    foreach ext ( $filelist )
+      mv  $file.${ext}_nvf $wdir/$file.${ext}${taskflag}_$gwtag
+    end
+  endif 
+
+recover_gw:
+
+  echo 
+  echo " --- recover gwdir ---"
+  echo 
+  foreach ext ( $filelist )
+    mv $file.${ext}_bak $file.${ext}
+  end
+
+  # recover original input and output files 
+  mv -f $GWINP ${GWINP}_nvf
+  mv -f $GWOUT ${GWOUT}_nvf
+  mv -f ${GWINP}_bak ${GWINP}
+  mv -f ${GWOUT}_bak ${GWOUT}
+
+  cd $wdir
+  if( $ierr_gw == 1) goto error 
+ 
+done:
+  echo "$name ended successfully!" 
+  exit 0
+
+error:
+  output " ERROR in $name"
+  exit 1
+
+help:
+  cat <<EOF 
+ Usage: `basename $0` [options]
+ Options:
+    -gw <gwexe>                 # generate GW DOS using <gwexe> 
+    -gwdir <gwdir>              # directory that store the gw output 
+    -f <file>                   # filename 
+    -h                          # write help and exit 
+    -kip <0/1>             # method used for k-interpolation
+    -tag <eqpH file tag>         # tag for the eqpH file 
+    -s <0/1/2>                  # option for spin polarized cases
+                                #  0 -- spin unpolarized 
+                                #  1 -- spin polarized but only spin up is calculated (for sp_c_lapw or afm_lapw) 
+                                #  2 -- spin polarized 
+    -t <task>                   #  
+EOF
+
+
