@@ -114,7 +114,10 @@ class OrbitalNameT:
     dic_spin = {-1:"down",0:"",1:"up"}
     dic_l = {-1:"",
             0:"s",1:"p",2:"d",3:"f",4:"g",-999:"X"}
-    dic_l_rev = {"s":0,"p":1,"d":2,"f":3,"g":4}
+    dic_l_rev = {
+            "s":0,"p":1,"d":2,"f":3,"g":4, 
+            "x": 2, # for vasp 5.4.4 compatibility
+            }
 #Deprecated
     comparer_default = lambda x,y : not x.is_custom and not y.is_custom and x.spin == y.spin
     comparer_custom = lambda x,y : not x.is_custom and not y.is_custom 
