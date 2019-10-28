@@ -1,5 +1,8 @@
 #!/usr/bin/env python
-import sys,os,shutil
+from __future__ import print_function
+import sys
+import os
+import shutil
 from math import *
 
 # This defines some home-made functions to manipulate lists to partially 
@@ -80,7 +83,7 @@ def f_List_Check(v):
     err = 1
   if ( err == 1):
     print("Unsupported value:",v)
-    raise TypeError,"Only 3-dimensional vector is supported"
+    raise TypeError("Only 3-dimensional vector is supported")
 
 
 def f_Str_Included(str,word):
@@ -116,7 +119,7 @@ def f_List_Op_Scalar(l,op,s):
     elif op == '/': lnew[i] /= s
     elif op == '**': lnew[i] = l[i]**s 
     else: 
-      print "ERROR in f_List_Op_Scalar: unsupported option!"
+      print("ERROR in f_List_Op_Scalar: unsupported option!")
       sys.exit(1) 
   return lnew    
 
@@ -136,7 +139,7 @@ def f_List_Op_List(l1,op,l2):
     for i in range(n): sum += l1[i]*l2[i]
     return sum 
   else: 
-    print "ERROR in f_List_Op_List: unsupported option %s!"%(op)
+    print("ERROR in f_List_Op_List: unsupported option %s!"%(op))
     sys.exit(1)
 
 def f_List_Included(elem_new,elems,tol=1.e-10):

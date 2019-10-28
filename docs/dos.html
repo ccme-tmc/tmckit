@@ -1,0 +1,377 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Density of States post-processing &mdash; TMCkit 0.1 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script type="text/javascript" src="_static/jquery.js"></script>
+        <script type="text/javascript" src="_static/underscore.js"></script>
+        <script type="text/javascript" src="_static/doctools.js"></script>
+        <script type="text/javascript" src="_static/language_data.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Band structure post-processing" href="bandstructure.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> TMCkit
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                0.1
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="bandstructure.html">Band structure post-processing</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Density of States post-processing</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#overview-of-py-dos-py">Overview of py_dos.py</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#how-to-use">How to use</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#better-style">Better style</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#align-valence-band-maximum-to-0">Align Valence Band Maximum to 0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#plot-projected-density-of-states-pdos">Plot Projected Density of States (PDOS)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#filter-unwanted-pdos">Filter unwanted PDOS</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#spin-polarized-cases">Spin polarized cases</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#summary">Summary</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#help">Help</a></li>
+</ul>
+</li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">TMCkit</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html">Docs</a> &raquo;</li>
+        
+      <li>Density of States post-processing</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="_sources/dos.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="density-of-states-post-processing">
+<h1>Density of States post-processing<a class="headerlink" href="#density-of-states-post-processing" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="overview-of-py-dos-py">
+<h2>Overview of py_dos.py<a class="headerlink" href="#overview-of-py-dos-py" title="Permalink to this headline">¶</a></h2>
+<p><strong class="program">py_dos.py</strong> provides a all-in-one solution to plot and analyze density of states from multiple packages. Here we provides some examples to show its functions.</p>
+</div>
+<div class="section" id="how-to-use">
+<h2>How to use<a class="headerlink" href="#how-to-use" title="Permalink to this headline">¶</a></h2>
+<p>The easiest way to use <strong class="program">py_dos.py</strong> is</p>
+<ol class="arabic simple">
+<li>Do a DOS calculation of given package (Like <strong class="program">WIEN2K</strong> or <strong class="program">VASP</strong>), keeps all the output files</li>
+<li>Type <strong class="program">py_dos.py</strong> and press enter</li>
+<li>The DOS is plotted in <code class="file docutils literal notranslate"><span class="pre">dos/plotdos.agr</span></code></li>
+<li>Use <strong class="program">xmgrace dos/plotdos.agr</strong> to see the DOS in xmgrace.</li>
+<li>The data are written in <code class="file docutils literal notranslate"><span class="pre">dos/dos.dat</span></code>.</li>
+</ol>
+<p>In general, to quickly view the DOS, just type</p>
+<div class="highlight-shell-session notranslate"><div class="highlight"><pre><span></span><span class="gp">$</span> py_dos.py
+<span class="gp">$</span> xmgrace dos/plotdos.agr
+</pre></div>
+</div>
+<p>We choose SrO as our testing materials. The plot looks like this:</p>
+<a class="reference internal image-reference" href="_images/dos-default.png"><img alt="_images/dos-default.png" src="_images/dos-default.png" style="width: 600px;" /></a>
+<p>In this picture we can see two lines. The first one is the black line <em>tot</em> and the second one is the red line <em>z</em>.
+The <em>tot</em> is the total density of states calculated from eigenvalues alone.
+The <em>z</em> is the summation of all projected density of states. As the projections are not complete, we expects <em>z</em> is always smaller than <em>tot</em>. The difference between these two are larger in the condunction bands because they are more unlocal and not bounded to the atom, or be covererd by atomic projectors.</p>
+</div>
+<div class="section" id="better-style">
+<h2>Better style<a class="headerlink" href="#better-style" title="Permalink to this headline">¶</a></h2>
+<p>The default picture in xmgrace consists of very thin lines if you have never adjust the xmgrace default template.</p>
+<p>To make it fit to the paper and slides, we make the lines thicker and characters larger that can be done in <strong class="program">xmgrace</strong>. After setting all line width to 2 and char size to 1.5, we have</p>
+<a class="reference internal image-reference" href="_images/dos-default-beauty.png"><img alt="_images/dos-default-beauty.png" src="_images/dos-default-beauty.png" style="width: 600px;" /></a>
+<p>Now this image is much more clear than the default one.</p>
+<p>However, we would like to get a .agr file immediately instead of manually modifying it in <strong class="program">xmgrace</strong> with lots of mouse clicks. It is possible with the option <em>-plotinfo</em>.</p>
+<div class="highlight-shell-session notranslate"><div class="highlight"><pre><span></span><span class="gp">$</span> py_dos.py --plotinfo plotsetting.json
+<span class="gp">$</span> xmgrace dos/plotdos.agr
+</pre></div>
+</div>
+<p>The file <code class="file docutils literal notranslate"><span class="pre">plotsetting.json</span></code> must be created by the user, which can be used multiple times. To achieve the effect above, we define following options:</p>
+<div class="highlight-javascript notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="s2">&quot;plot_setting&quot;</span><span class="o">:</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;frame linewidth&quot;</span> <span class="o">:</span> <span class="mi">2</span><span class="p">,</span>
+        <span class="s2">&quot;line linewidth&quot;</span> <span class="o">:</span> <span class="mi">2</span><span class="p">,</span>
+        <span class="s2">&quot;symbol linewidth&quot;</span> <span class="o">:</span> <span class="mi">2</span><span class="p">,</span>
+        <span class="s2">&quot;yaxis label char size&quot;</span> <span class="o">:</span> <span class="mf">1.5</span><span class="p">,</span>
+        <span class="s2">&quot;yaxis ticklabel char size&quot;</span> <span class="o">:</span> <span class="mf">1.5</span><span class="p">,</span>
+        <span class="s2">&quot;xaxis ticklabel char size&quot;</span> <span class="o">:</span> <span class="mf">1.5</span><span class="p">,</span>
+        <span class="s2">&quot;title&quot;</span> <span class="o">:</span> <span class="s2">&quot;\&quot;\&quot;&quot;</span>
+    <span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="align-valence-band-maximum-to-0">
+<h2>Align Valence Band Maximum to 0<a class="headerlink" href="#align-valence-band-maximum-to-0" title="Permalink to this headline">¶</a></h2>
+<p>In previous pictures, the valence band maximum (VBM) is indicated as a dashed line (for metals it is the Fermi level), but it is not 0. As plenty of publications use the 0 as the VBM, we can also do it easily here.</p>
+<div class="highlight-shell-session notranslate"><div class="highlight"><pre><span></span><span class="gp">$</span> py_dos.py --plotinfo plotsetting.json -f -g
+<span class="gp">$</span> xmgrace dos/plotdos.agr
+</pre></div>
+</div>
+<p>Where <em>-f</em> means to overwrite the previous <code class="file docutils literal notranslate"><span class="pre">dos</span></code> folder (or you will see nothing changed!) and <em>-g</em> means to put the VBM or Fermi level at 0, and shift all other pictures.</p>
+<a class="reference internal image-reference" href="_images/dos-align.png"><img alt="_images/dos-align.png" src="_images/dos-align.png" style="width: 600px;" /></a>
+</div>
+<div class="section" id="plot-projected-density-of-states-pdos">
+<h2>Plot Projected Density of States (PDOS)<a class="headerlink" href="#plot-projected-density-of-states-pdos" title="Permalink to this headline">¶</a></h2>
+<p>In the previous plots, only the total density of states is shown, which does not contains too much information. The PDOS is much more useful in most cases.</p>
+<p>In this SrO system, what we concern is the s/p orbitals of Sr and O. To display this PDOS, we use such commands:</p>
+<div class="highlight-shell-session notranslate"><div class="highlight"><pre><span></span><span class="gp">$</span> py_dos.py --plotinfo plotsetting.json -f -g --format <span class="s2">&quot;%s(%l)&quot;</span>
+<span class="gp">$</span> xmgrace dos/plotdos.agr
+</pre></div>
+</div>
+<a class="reference internal image-reference" href="_images/dos-pdos.png"><img alt="_images/dos-pdos.png" src="_images/dos-pdos.png" style="width: 600px;" /></a>
+<p>We can see that with just one option <em>-format</em>, all PDOS with Sr(s), Sr(p), Sr(d), O(s), O(p) are plotted and marked. O(p) is the major component of valence bands near Fermi levels, and Sr(d) is the major component of condunction bands. Sr(s) and Sr(p) of inner orbitals are semi-cores and deep below -10eV.</p>
+<p>Let us examine how this options works.</p>
+<p>The option <em>-format</em> should be followed by an “format string” which indicates what projectors will be plotted. This format string should contains some special marks starting with “%”. Available ones include:</p>
+<ul class="simple">
+<li><em>%s</em> The atom species</li>
+<li><em>%i</em> The atom index in the whole list</li>
+<li><em>%n</em> The quantum number n (like 1s/2s/3s orbitals), this is not used in most pseduo-potential packages</li>
+<li><em>%l</em> The quantum number l (like s/p/d orbitals)</li>
+<li><em>%m</em> The quantum number m (like px/py/pz orbitals), however different packaged may use different m definition</li>
+<li><em>%spin</em> The spin (up or down)</li>
+</ul>
+<p>This information can uniquely determine where a projetor in any calculations. However, a format string may contains only a few of them, which makes two different projectors looks like the same if we look at only the given marks.</p>
+<p>In the plots, <strong class="program">py_dos.py</strong> take the summation of all the “same” projectors. For example, the format string <code class="docutils literal notranslate"><span class="pre">%s(%l)</span></code> treats Sr(px), Sr(py), Sr(pz) as the same projector, and plots the summation of them.</p>
+<p>Also, the legend name is automatically generated with the format string by directly replacement. If one would like to use legend <code class="docutils literal notranslate"><span class="pre">Sr</span> <span class="pre">(orbital</span> <span class="pre">s)</span></code>, then we can write the format string like <code class="docutils literal notranslate"><span class="pre">%s</span> <span class="pre">(orbital</span> <span class="pre">%l)</span></code>.</p>
+</div>
+<div class="section" id="filter-unwanted-pdos">
+<h2>Filter unwanted PDOS<a class="headerlink" href="#filter-unwanted-pdos" title="Permalink to this headline">¶</a></h2>
+<p>With the powerful format string, we always plot all PDOS on the picture. Sometimes we do not want some less important orbitals, like <code class="docutils literal notranslate"><span class="pre">O(d)</span></code>. This can be done by filtering those orbitals.</p>
+<div class="highlight-shell-session notranslate"><div class="highlight"><pre><span></span><span class="gp">$</span> py_dos.py -f -g  --format <span class="s2">&quot;%s %l&quot;</span> --filter <span class="s2">&quot;not (x.species == &#39;O&#39; and x.l &gt; 1)&quot;</span>   --plotinfo plotsetting_dos.json
+<span class="gp">$</span> xmgrace dos/plotdos.agr
+</pre></div>
+</div>
+<a class="reference internal image-reference" href="_images/dos-filter.png"><img alt="_images/dos-filter.png" src="_images/dos-filter.png" style="width: 600px;" /></a>
+<p>The options <em>filter</em> contains a Python function which returns true or false, only orbitals that returns true will be included in the final plot.</p>
+<p>The orbital is represented by an object <code class="docutils literal notranslate"><span class="pre">x</span></code> in the function. It has propety <code class="docutils literal notranslate"><span class="pre">s</span></code>, <code class="docutils literal notranslate"><span class="pre">i</span></code>, <code class="docutils literal notranslate"><span class="pre">n</span></code>, <code class="docutils literal notranslate"><span class="pre">l</span></code>, <code class="docutils literal notranslate"><span class="pre">m</span></code>, <code class="docutils literal notranslate"><span class="pre">spin</span></code> just the same as the format string. All the options are physical integers, excpet <code class="docutils literal notranslate"><span class="pre">s</span></code> is an string for element names. <code class="docutils literal notranslate"><span class="pre">spin</span></code> is -1 or 1 for spin-polarized calculations and 0 for unpolarized calculations.</p>
+<p>Here <code class="docutils literal notranslate"><span class="pre">not</span> <span class="pre">(x.species</span> <span class="pre">==</span> <span class="pre">'O'</span> <span class="pre">and</span> <span class="pre">x.l</span> <span class="pre">&gt;</span> <span class="pre">1)</span></code> means for all orbitals belongs to oxygen atoms and <code class="docutils literal notranslate"><span class="pre">l</span></code> quantum numbers larger than 1, or O(d) and O(f), are excluded from the plot.</p>
+<p>This function is also useful if you want to see some local DOS, like the first layer of a slab model. The filter then should be like <code class="docutils literal notranslate"><span class="pre">x.i</span> <span class="pre">==</span> <span class="pre">1</span> <span class="pre">or</span> <span class="pre">x.i</span> <span class="pre">==</span> <span class="pre">2</span></code> where we assume that the first and the second atoms are the first layer.</p>
+</div>
+<div class="section" id="spin-polarized-cases">
+<h2>Spin polarized cases<a class="headerlink" href="#spin-polarized-cases" title="Permalink to this headline">¶</a></h2>
+<p>Spin polarized PDOS will be plotted in two sides of the x-axis automatically like</p>
+<div class="highlight-shell-session notranslate"><div class="highlight"><pre><span></span><span class="gp">$</span> py_dos.py  -f -g --format <span class="s2">&quot;%s(%l)(%spin)&quot;</span> --filter <span class="s2">&quot;not (x.species == &#39;O&#39; and x.l &gt; 1)&quot;</span>   --plotinfo plotsetting_dos.json
+<span class="gp">$</span> xmgrace dos/plotdos.agr
+</pre></div>
+</div>
+<a class="reference internal image-reference" href="_images/dos-spin.png"><img alt="_images/dos-spin.png" src="_images/dos-spin.png" style="width: 600px;" /></a>
+</div>
+<div class="section" id="summary">
+<h2>Summary<a class="headerlink" href="#summary" title="Permalink to this headline">¶</a></h2>
+<p>From above we have already show the what <strong class="program">py_dos.py</strong> can do.</p>
+<p><strong class="program">py_dos.py</strong> supports following packages:</p>
+<ul class="simple">
+<li><strong class="program">SIESTA</strong> :  pdos.xml or $CASE$.PDOS</li>
+<li><strong class="program">VASP</strong> : none, require to run in the case folder</li>
+<li><strong class="program">WIEN2K</strong> :  none , require to run in the case folder</li>
+<li><strong class="program">Quantum-Espresso</strong> :  prefix of output filenames, require to run in the folder contains all output of projwfc.x</li>
+</ul>
+</div>
+<div class="section" id="help">
+<h2>Help<a class="headerlink" href="#help" title="Permalink to this headline">¶</a></h2>
+<p>The simplified program help file is list below.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>usage: py_dos.py [-h] [-i PROGRAM] [-g] [-s] [-d OUTPUTDIR] [-f]
+                 [--format FORMAT] [--filter FILTER] [--plotinfo FILEPLOTINFO]
+                 [extra_args [extra_args ...]]
+
+Plot DOS of specific package in specific format, also create one-file plain tabular seperated text for DOS.
+    File required:
+        SIESTA :  pdos.xml or $CASE$.PDOS
+        VASP : none, require to run in the case folder
+        WIEN2K :  none , require to run in the case folder
+        QE :  prefix of output filenames, require to run in the folder contains all output of projwfc.x
+    By default, output folder is current folder, so it is sugguested to run this with -d option to redirect output files to another folder as it will create plenty of files.
+    Example:
+    py_dos.py -d dos --format &quot;%s%i(%l)(%spin)&quot; --filter &quot;x.species==&#39;O&#39;&quot;
+    
+
+positional arguments:
+  extra_args            Arguments passed to package-specific procedures
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -i PROGRAM            The package name
+  -g                    Shift band position to make VBM = 0 in graph
+  -s                    Do not plot band structure, just write band structure
+                        data and k-point list in space-seperated format
+  -d OUTPUTDIR          The name of folder used to store output files
+  -f                    Control whether to overwrite if the output directory
+                        already exists, default is not
+  --format FORMAT       Combine multiple DOS into a single one in specific
+                        level. Levels include %spin,%m,%l,%n,%i(atom
+                        index),%s(species),%t(total). This string also
+                        indicates display names, format strings like %x will
+                        be replaced while others will be kept
+  --filter FILTER       The command to judge whether a specific orbital should
+                        be included in final results, like &#39;x.l ==1 and x.i &lt;
+                        70&#39;. Warning: This string will be EXECCUTED DIRECTLY
+                        so be cautious!
+  --plotinfo FILEPLOTINFO
+                        The input file for plotting parameters
+</pre></div>
+</div>
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+      
+        <a href="bandstructure.html" class="btn btn-neutral float-left" title="Band structure post-processing" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2014, TMC group
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

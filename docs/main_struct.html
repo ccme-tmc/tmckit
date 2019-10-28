@@ -1,0 +1,1170 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>&lt;no title&gt; &mdash; TMCkit 0.1 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script type="text/javascript" src="_static/jquery.js"></script>
+        <script type="text/javascript" src="_static/underscore.js"></script>
+        <script type="text/javascript" src="_static/doctools.js"></script>
+        <script type="text/javascript" src="_static/language_data.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> TMCkit
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                0.1
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="bandstructure.html">Band structure post-processing</a></li>
+<li class="toctree-l1"><a class="reference internal" href="dos.html">Density of States post-processing</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">TMCkit</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html">Docs</a> &raquo;</li>
+        
+      <li>&lt;no title&gt;</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="_sources/main_struct.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <span class="target" id="module-common_caseutil"></span><dl class="function">
+<dt id="common_caseutil.ConvertCartesianToInnerCoord">
+<code class="descclassname">common_caseutil.</code><code class="descname">ConvertCartesianToInnerCoord</code><span class="sig-paren">(</span><em>fCell</em>, <em>listCart</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#ConvertCartesianToInnerCoord"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.ConvertCartesianToInnerCoord" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert cartesian to inner coordinate in specific lattice</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>fCell</strong> – a 3x3  ndarray, each row is a vector of lattice axis</li>
+<li><strong>listCart</strong> – a list of Cartesian coordinate</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.ConvertCartesianToLattice">
+<code class="descclassname">common_caseutil.</code><code class="descname">ConvertCartesianToLattice</code><span class="sig-paren">(</span><em>listBravis</em>, <em>nLatticeType=0</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#ConvertCartesianToLattice"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.ConvertCartesianToLattice" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert Bravis matrix to 3 parameter + 3 angle</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>listBravis</strong> – Bravis matrix</li>
+<li><strong>nBravis</strong> – represent bravis type, will convert primitive lattice to convetional lattice according to this.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.ConvertInnerCoordToCartesian">
+<code class="descclassname">common_caseutil.</code><code class="descname">ConvertInnerCoordToCartesian</code><span class="sig-paren">(</span><em>fCell</em>, <em>listInner</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#ConvertInnerCoordToCartesian"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.ConvertInnerCoordToCartesian" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert inner coordinate to cartesian coordinate in specific lattice</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.ConvertLatticeToCartesian">
+<code class="descclassname">common_caseutil.</code><code class="descname">ConvertLatticeToCartesian</code><span class="sig-paren">(</span><em>fLatticeParameter</em>, <em>fLatticeAngle</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#ConvertLatticeToCartesian"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.ConvertLatticeToCartesian" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert lattice parameter+angle to Bravis matrix( Numpy array )</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>fLatticeAngle</strong> – should in unit of degree</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="exception">
+<dt id="common_caseutil.FormatError">
+<em class="property">exception </em><code class="descclassname">common_caseutil.</code><code class="descname">FormatError</code><span class="sig-paren">(</span><em>value</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#FormatError"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.FormatError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Represent file format incorrect</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.GetDefaultCharge">
+<code class="descclassname">common_caseutil.</code><code class="descname">GetDefaultCharge</code><span class="sig-paren">(</span><em>nIndex</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#GetDefaultCharge"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.GetDefaultCharge" title="Permalink to this definition">¶</a></dt>
+<dd><p>Give a default Charge for specific atom index</p>
+</dd></dl>
+
+<dl class="class">
+<dt id="common_caseutil.KPointsT">
+<em class="property">class </em><code class="descclassname">common_caseutil.</code><code class="descname">KPointsT</code><span class="sig-paren">(</span><em>stFile=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#KPointsT"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.KPointsT" title="Permalink to this definition">¶</a></dt>
+<dd><p>Represent a set of kpoints
+Contains k-point coordinate, k-point name</p>
+<dl class="method">
+<dt id="common_caseutil.KPointsT.ConvertUnit">
+<code class="descname">ConvertUnit</code><span class="sig-paren">(</span><em>stModeNew</em>, <em>mLatt=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#KPointsT.ConvertUnit"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.KPointsT.ConvertUnit" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert k-points coordinate between crystal,cartesian and tpiba unit based on structure
+Note this conversion mostly only appeared in orthogonal lattice, as in practice, non-orthogonal lattice never use tpiba unit.
+Equation : matLattVec . vecCrystal = vecCartesian</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>stModeNew</strong> – the new k-point unit</li>
+<li><strong>mLatt</strong> – the real-space lattice vector that k-point is based on; note for some program it is primitive lattice ( like VASP and YAehmop ), and others are conventional lattice (Wien2K cubic). If None is used, we use conventional lattice for tpiabc (which belongs to Wien2K cubic) and primitive for others.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">whether the conversion completed</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.KPointsT.CreateFromPointLine">
+<code class="descname">CreateFromPointLine</code><span class="sig-paren">(</span><em>listK2</em>, <em>listPointsCount=None</em>, <em>nTotal=None</em>, <em>mLatt=None</em>, <em>nDivisor=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#KPointsT.CreateFromPointLine"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.KPointsT.CreateFromPointLine" title="Permalink to this definition">¶</a></dt>
+<dd><p>Read k-point from x,y,z + point along the line format
+kpt must be in formar [x,y,z], [x,y,z,name] or [name,x,y,z]
+The mode is not changed during this process</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>listK2</strong> – the list of k-points in KPointsT readable format</li>
+<li><strong>listPointsCount</strong> – the number of points along each line</li>
+<li><strong>nTotal</strong> – the total number of points. The lattice must be specified if use this option, and k-points will be spread homogeneously along lines</li>
+<li><strong>mLatt</strong> – the lattice vectors for k-points, necessary if k-points is in internal coordinate</li>
+<li><strong>nDivisor</strong> – if this number is set, then number of points along each line must be a divisor/factor of this number. This function is especially useful for WIEN2k. Set to 0 means the program will automatically choose a number.</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">the divisor</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.KPointsT.CreateKPointsFromSymmetry">
+<code class="descname">CreateKPointsFromSymmetry</code><span class="sig-paren">(</span><em>nGroup</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#KPointsT.CreateKPointsFromSymmetry"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.KPointsT.CreateKPointsFromSymmetry" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create high-symmetry k-points list from spacegroup symmetry
+The lattice must be set before invoke this function</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>nGroup</strong> – the 230 space group index (1-230)</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.KPointsT.GetTurningPoint">
+<code class="descname">GetTurningPoint</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#KPointsT.GetTurningPoint"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.KPointsT.GetTurningPoint" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return index of turning points in the k-point path
+Start point and end point are not included
+Index start from 0</p>
+<p>Warning: sometimes a band structure may contains duplicated points (like band-mode in VASP), which is bad so we skip such k-points</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.KPointsT.ReadFromFile">
+<code class="descname">ReadFromFile</code><span class="sig-paren">(</span><em>stFileName</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#KPointsT.ReadFromFile"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.KPointsT.ReadFromFile" title="Permalink to this definition">¶</a></dt>
+<dd><p>Read k-point from a file in raw format
+format as first line is k-point data mode; if it is not “crystal”/”cartesian”/”tpiba”/”piba”, then it is set to crystal and this line is used as k-point
+each k-point format ( “,” means space or tab )
+* [name],kx,ky,kz,[weight]
+* kx,ky,kz,[name]
+* kx,ky,kz,weight,[name]
+name must start with character and no space in it; if it start with number, then it is treated as kx!</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.KPointsT.ReadFromList">
+<code class="descname">ReadFromList</code><span class="sig-paren">(</span><em>list_kp</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#KPointsT.ReadFromList"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.KPointsT.ReadFromList" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create object from simple k-point list in format 
+[ [x1,y1,z1] …]
+or 
+[ [x1,y1,z1,w1] …]
+or
+[ [name,x1,y1,z1,w1] …]
+The unit is not concerned in this case</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.KPointsT.WriteToFile">
+<code class="descname">WriteToFile</code><span class="sig-paren">(</span><em>stFileName</em>, <em>bWriteName=False</em>, <em>bWriteWeight=False</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#KPointsT.WriteToFile"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.KPointsT.WriteToFile" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write k-point list to a file with/without</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>bUseName</strong> – write name or not, default no</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.KPointsT.get_k_xaxis">
+<code class="descname">get_k_xaxis</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#KPointsT.get_k_xaxis"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.KPointsT.get_k_xaxis" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get a list of points on one axis for band structure plotting</p>
+<p>If two points are two far away, then they are treated as seperated, the distance between them is eliminated</p>
+<p>:return:list_x and list_name for x-axis and k-point names, list_break for the index of k-points where a new kpath starts</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="common_caseutil.Lattice">
+<em class="property">class </em><code class="descclassname">common_caseutil.</code><code class="descname">Lattice</code><a class="reference internal" href="_modules/common_caseutil.html#Lattice"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice" title="Permalink to this definition">¶</a></dt>
+<dd><p>A basic representation of lattice, all basic number unit in bohr and deg
+Cartesian vectors follow this: c-axis as [0,0,c] b-c in a plane of axis
+Members start with “Create” will return a new Lattice object, otherwise itself will change</p>
+<dl class="method">
+<dt id="common_caseutil.Lattice.AddAtom">
+<code class="descname">AddAtom</code><span class="sig-paren">(</span><em>listPos</em>, <em>unit='bohr'</em>, <em>latt='primitive'</em>, <em>a=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.AddAtom"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.AddAtom" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add a atom list by Cartesian Coordinate or Crystal Coordinate, indicated by unit_length
+Note: please be cautious with latt=”alat”, because “a” is not fixed during cell shape change.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>listCart</strong> – in form of  [Element name,x,y,z]</li>
+<li><strong>unit</strong> – indicate type of xyz : bohr, ang/angstrom, cry/crys/crystal, alat</li>
+<li><strong>latt</strong> – indicate which cell xyz is related to : primtive/conventional ( only affect when unit is crystal ), raw ( stored cell vectors )</li>
+<li><strong>a</strong> – the length of a in unit of Bohr. Default is the fLatticeLength (which is the first lattice vector if bRaw, otherwise conventional lattice vector).</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.AddAtomFromCartesian">
+<code class="descname">AddAtomFromCartesian</code><span class="sig-paren">(</span><em>listCart</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.AddAtomFromCartesian"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.AddAtomFromCartesian" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add a atom list by Cartesian Coordinate</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>listCard</strong> – a list of atom positions, each atom positions must be in the format [‘Name’,x,y,z]</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.ChangeCell">
+<code class="descname">ChangeCell</code><span class="sig-paren">(</span><em>stMode='c:1'</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.ChangeCell"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.ChangeCell" title="Permalink to this definition">¶</a></dt>
+<dd><p>Change a specific Lattice object with specific method
+Note: any change on crystal axis will not affect the internal coordinate of atom
+In clayer mode, if there exist a distance much larger than others, it will be treated as Slab vacuum and not extended</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Params stMode:</th><td class="field-body">the way to change lattice, “c” and “tmdc” is supported. in format “mode:para;mode:para”</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.CheckAtom">
+<code class="descname">CheckAtom</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.CheckAtom"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.CheckAtom" title="Permalink to this definition">¶</a></dt>
+<dd><p>Check whether an Atom is &lt; 0 or &gt; 1, or there are duplicated atoms</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="common_caseutil.Lattice.ConventionalCellVector">
+<code class="descname">ConventionalCellVector</code><a class="headerlink" href="#common_caseutil.Lattice.ConventionalCellVector" title="Permalink to this definition">¶</a></dt>
+<dd><p>Conventional cell vectors</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.CorrectError">
+<code class="descname">CorrectError</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.CorrectError"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.CorrectError" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set some standard fractional coordinate (like 1/3 ) to their exact value to beautify the output
+Example : 0.6666663562472133 to 0.6666666666667, 0.249999998232 to 0.25</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.CreateSlab">
+<code class="descname">CreateSlab</code><span class="sig-paren">(</span><em>dThreshold=-1.0</em>, <em>nLatt=7</em>, <em>nVacuum=5</em>, <em>nFix=3</em>, <em>nShift=0</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.CreateSlab"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.CreateSlab" title="Permalink to this definition">¶</a></dt>
+<dd><p>Slice a n-layer slab from bulk cell with v layer vacuum along c axis. The atoms will be placed in the middle of the cell.
+A layer ( Unit layer ) is a combination of continuious atom layer. An atom layer is all atom in same c internal coordinate.
+Unit layer doesn’t require to be same between each two.
+For example, MoS2 is a layer structure, and a layer contains S-Mo-S, 3 atom layers
+In AB stack, A is both an atom layer and an unit layer. B is another.
+repeat 5 times will create a A B A B A slab. Shift = 1 create B A B A B slab.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>nUnitLayer</strong> – the mono atom layer count in one unit layer in this manipulation. ( not used currently)</li>
+<li><strong>nLatt</strong> – the layer counts of unit layer.</li>
+<li><strong>nVacuum</strong> – the layer of vacuum.</li>
+<li><strong>nFix</strong> – the layer of atom never move ; the fixed indexs will be returned as return value</li>
+<li><strong>nShift</strong> – the start layer, counting from</li>
+<li><strong>dThreshold</strong> – The minimum distance between 2 layer. Auto detect if &lt; 0. For example, all atom in range of 4 bohr is treated as same atom layer ( van der Waals ). For a ionic crystal, it should less than 0.1.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.CreateSurfCell">
+<code class="descname">CreateSurfCell</code><span class="sig-paren">(</span><em>stRefAxis='001', dRot=0, mRot=[[1, 0], [0, 1]]</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.CreateSurfCell"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.CreateSurfCell" title="Permalink to this definition">¶</a></dt>
+<dd><p>Slice a cell that have a plance perpendicular to specifc stRefAxis ( for surface model )
+The input miller index should be simlified, like 002 may cause unexpected result</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.ExpandCell">
+<code class="descname">ExpandCell</code><span class="sig-paren">(</span><em>stRefAxis='001'</em>, <em>nCell=1</em>, <em>nVacuum=1</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.ExpandCell"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.ExpandCell" title="Permalink to this definition">¶</a></dt>
+<dd><p>Then extended Cell x times plus vacuum y times of original cell.
+Some high symmertry may broke for this reason.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>stRefAxis</strong> – the axis to extended ( always postive ), only 100,010 and 001 is supported</li>
+<li><strong>nCell</strong> – the number of cell layer</li>
+<li><strong>nVacuum</strong> – the length of vacuum layer ( relative to cell length )</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.GetAtomList">
+<code class="descname">GetAtomList</code><span class="sig-paren">(</span><em>unit='bohr', latt='primitive', extend=[0, 0, 0, 0, 0, 0]</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.GetAtomList"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.GetAtomList" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get a list of atom in some representaion</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>unit</strong> – the unit of coordinate, including bohr,ang,alat,primitive,conventional</li>
+<li><strong>latt</strong> – the atom in whole convetional cell or one primitive cell</li>
+<li><strong>extend</strong> – the lattice will be examed</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.GetLayerAtom">
+<code class="descname">GetLayerAtom</code><span class="sig-paren">(</span><em>dThreshold=-1.0</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.GetLayerAtom"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.GetLayerAtom" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get atom layer along c axis</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>dThreshold</strong> – The minimum distance between 2 layer. Auto detect if &lt; 0. For example, all atom in range of 4 bohr is treated as same atom layer ( van der Waals ). For a ionic crystal, it should less than 0.1.</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="common_caseutil.Lattice.IsRaw">
+<code class="descname">IsRaw</code><a class="headerlink" href="#common_caseutil.Lattice.IsRaw" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return whether Lattice object is operated in raw mode</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.MoveCell">
+<code class="descname">MoveCell</code><span class="sig-paren">(</span><em>vDistance=[0, 0, 0]</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.MoveCell"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.MoveCell" title="Permalink to this definition">¶</a></dt>
+<dd><p>Move Cell by a specific vector</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>vDistance</strong> – The vector to move, unit of crystal coordinate of conventional vector</li>
+<li><strong>nAtomIndex</strong> – which atom to move, if not set vector will be used, vector will be neglected otherwise</li>
+<li><strong>nNewPos</strong> – Which position the atom will be moved to</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="common_caseutil.Lattice.PrimitiveCellVector">
+<code class="descname">PrimitiveCellVector</code><a class="headerlink" href="#common_caseutil.Lattice.PrimitiveCellVector" title="Permalink to this definition">¶</a></dt>
+<dd><p>Primitive cell vectors</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.ReadFromPrimitiveCellVector">
+<code class="descname">ReadFromPrimitiveCellVector</code><span class="sig-paren">(</span><em>mBravis</em>, <em>nLatticeType=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.ReadFromPrimitiveCellVector"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.ReadFromPrimitiveCellVector" title="Permalink to this definition">¶</a></dt>
+<dd><p>Read Cell from cell vectors and Lattice Type ( If no lattice type is used, original one will be used)
+Atoms’ crystal coordination will not moved !</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>mBravis</strong> – Cell vectors</li>
+<li><strong>nLatticeType</strong> – The lattice type, if NONE then the nLatticeType stored in the current object is used</li>
+<li><strong>bRaw</strong> – If set to true, will not utilize primitive-conventional convertion in the process, and put the mode of Lattice object to raw</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.ReadFromRawCellVector">
+<code class="descname">ReadFromRawCellVector</code><span class="sig-paren">(</span><em>mBravisConv</em>, <em>mBravisPrim=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.ReadFromRawCellVector"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.ReadFromRawCellVector" title="Permalink to this definition">¶</a></dt>
+<dd><p>Read Lattice object from specified cell vectors
+Note one may provide BOTH conventional and primitive cell vectors</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>mBravisConv</strong> – Bravis matrix of the conventional cell</li>
+<li><strong>mBravisPrim</strong> – Bravis matrix of the primitive cell, optional; If negelected Conv/Prim are the same.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.RotateCell">
+<code class="descname">RotateCell</code><span class="sig-paren">(</span><em>arRefPoint=[0, 0, 0], stRefAxis='001', stNewAxis='001'</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.RotateCell"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.RotateCell" title="Permalink to this definition">¶</a></dt>
+<dd><p>Transform a cell to another orientation ( for surface SLAB )
+Fix ref point, rotate ref axis (a or b or c) to new orientation, xyz axis will be rotated as well
+Equally = all atom rotate reverse</p>
+<p>Note: the rotation axis is vertical to the plane of old ref axis and new axis
+All action is do in conventional cell.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.ShowSummary">
+<code class="descname">ShowSummary</code><span class="sig-paren">(</span><em>stFileName=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.ShowSummary"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.ShowSummary" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write cell information to specific file or screen</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>stFileName</strong> – if set to None, set print to screen</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="common_caseutil.Lattice.Volume">
+<code class="descname">Volume</code><a class="headerlink" href="#common_caseutil.Lattice.Volume" title="Permalink to this definition">¶</a></dt>
+<dd><p>Volume of convetional cell vectors</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.init_fix">
+<code class="descname">init_fix</code><span class="sig-paren">(</span><em>b_fix=False</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.init_fix"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.init_fix" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create informations about fix</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>b_fix</strong> – initialze with True or False</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="common_caseutil.Lattice.listAtomCartesian">
+<code class="descname">listAtomCartesian</code><a class="headerlink" href="#common_caseutil.Lattice.listAtomCartesian" title="Permalink to this definition">¶</a></dt>
+<dd><p>list all atom in Cartesian Coordinate</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="common_caseutil.Lattice.listAtomInConvCell">
+<code class="descname">listAtomInConvCell</code><a class="headerlink" href="#common_caseutil.Lattice.listAtomInConvCell" title="Permalink to this definition">¶</a></dt>
+<dd><p>List all atom in the conventional cell ( by conventional cell crystal coordinate )</p>
+</dd></dl>
+
+<dl class="attribute">
+<dt id="common_caseutil.Lattice.listFix">
+<code class="descname">listFix</code><em class="property"> = None</em><a class="headerlink" href="#common_caseutil.Lattice.listFix" title="Permalink to this definition">¶</a></dt>
+<dd><p>list of where atoms are fixed on given direction</p>
+</dd></dl>
+
+<dl class="classmethod">
+<dt id="common_caseutil.Lattice.load_xml">
+<em class="property">classmethod </em><code class="descname">load_xml</code><span class="sig-paren">(</span><em>filename</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.load_xml"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.load_xml" title="Permalink to this definition">¶</a></dt>
+<dd><p>Load parameters from a XML file</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.Lattice.save">
+<code class="descname">save</code><span class="sig-paren">(</span><em>filename</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#Lattice.save"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.Lattice.save" title="Permalink to this definition">¶</a></dt>
+<dd><p>Save parameters to a XML file</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="common_caseutil.NamelistIO">
+<em class="property">class </em><code class="descclassname">common_caseutil.</code><code class="descname">NamelistIO</code><span class="sig-paren">(</span><em>pre_line=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#NamelistIO"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.NamelistIO" title="Permalink to this definition">¶</a></dt>
+<dd><p>A Class used for Fortran namelist like file I/O
+Warning: This invokes exec on lines directly, please use with caution!</p>
+<dl class="method">
+<dt id="common_caseutil.NamelistIO.AddValue">
+<code class="descname">AddValue</code><span class="sig-paren">(</span><em>part</em>, <em>name</em>, <em>value</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#NamelistIO.AddValue"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.NamelistIO.AddValue" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add a name=value contained in specific &amp;part/</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.NamelistIO.ReadFromFile">
+<code class="descname">ReadFromFile</code><span class="sig-paren">(</span><em>stFileName</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#NamelistIO.ReadFromFile"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.NamelistIO.ReadFromFile" title="Permalink to this definition">¶</a></dt>
+<dd><p>Read content from one file in Fortran namelist format</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.NamelistIO.WriteToFile">
+<code class="descname">WriteToFile</code><span class="sig-paren">(</span><em>stFileName</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#NamelistIO.WriteToFile"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.NamelistIO.WriteToFile" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write content to one file in Quantum-Espresso readable format</p>
+</dd></dl>
+
+<dl class="staticmethod">
+<dt id="common_caseutil.NamelistIO.default_pre_line">
+<em class="property">static </em><code class="descname">default_pre_line</code><span class="sig-paren">(</span><em>line</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#NamelistIO.default_pre_line"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.NamelistIO.default_pre_line" title="Permalink to this definition">¶</a></dt>
+<dd><p>Treat all “!” as the starting point of a comment
+Remove all redundant blanks and comments
+This is used when pre_line is None
+&#64;todo we don’t check if it is inside a string</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="class">
+<dt id="common_caseutil.RawFileIO">
+<em class="property">class </em><code class="descclassname">common_caseutil.</code><code class="descname">RawFileIO</code><span class="sig-paren">(</span><em>filename=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#RawFileIO"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.RawFileIO" title="Permalink to this definition">¶</a></dt>
+<dd><p>A class represents a files which can be used for IO
+It keeps exactly every line in the file, and won’t lost anything between I/O, but still support value edit and addition (“n” is stored)
+It is suitable to edit files that have large parts not concerned by us, but should not be modified, and it is not worth to encode a full I/O for it. 
+Its efficiency is a hell but still always faster than QM calculation so do not bother it.</p>
+<dl class="method">
+<dt id="common_caseutil.RawFileIO.edit_name_value">
+<code class="descname">edit_name_value</code><span class="sig-paren">(</span><em>name</em>, <em>value</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#RawFileIO.edit_name_value"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.RawFileIO.edit_name_value" title="Permalink to this definition">¶</a></dt>
+<dd><p>Edit name = value type string
+if name does not exist, then add one</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.RawFileIO.edit_value">
+<code class="descname">edit_value</code><span class="sig-paren">(</span><em>ix_line</em>, <em>value</em>, <em>pos_end=None</em>, <em>name=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#RawFileIO.edit_value"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.RawFileIO.edit_value" title="Permalink to this definition">¶</a></dt>
+<dd><p>Edit the value in the line, assuming only one value is presented in the line
+there are several way to guess it:
+1. after first “=”
+2. first number 
+if pos_end is used then look for the position 
+if name is used then look for the name</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>ix_line</strong> – the line index which to be edited</li>
+<li><strong>value</strong> – the value which should be set</li>
+<li><strong>pos_end</strong> – the end position of the value which is to be set</li>
+<li><strong>name</strong> – the value just after name will be set ( possibly skip a “=” )</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.RawFileIO.find_marked_line">
+<code class="descname">find_marked_line</code><span class="sig-paren">(</span><em>mark</em>, <em>num_shift=0</em>, <em>ix_start=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#RawFileIO.find_marked_line"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.RawFileIO.find_marked_line" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the index of line, with specific number of lines before/after its line</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>mark</strong> – the string which the first appear should be found</li>
+<li><strong>num_shift</strong> – the i-th line after the marked line(can be 0 or negative)</li>
+<li><strong>ix_start</strong> – which line the search should start, start at 0</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">the line index, if not found return 0</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.RawFileIO.read">
+<code class="descname">read</code><span class="sig-paren">(</span><em>filename</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#RawFileIO.read"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.RawFileIO.read" title="Permalink to this definition">¶</a></dt>
+<dd><p>Read a file</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="common_caseutil.RawFileIO.write">
+<code class="descname">write</code><span class="sig-paren">(</span><em>filename</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#RawFileIO.write"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.RawFileIO.write" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write to a file</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.ReadSplitLine">
+<code class="descclassname">common_caseutil.</code><code class="descname">ReadSplitLine</code><span class="sig-paren">(</span><em>fIn</em>, <em>stSep=''</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#ReadSplitLine"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.ReadSplitLine" title="Permalink to this definition">¶</a></dt>
+<dd><p>Read a line from file and split it by default ( no EOL and ignore empty), or split with specific string</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.debug_print">
+<code class="descclassname">common_caseutil.</code><code class="descname">debug_print</code><span class="sig-paren">(</span><em>level</em>, <em>*para</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#debug_print"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.debug_print" title="Permalink to this definition">¶</a></dt>
+<dd><p>print for debug, logLevel can be used to control whether output</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.deprecated">
+<code class="descclassname">common_caseutil.</code><code class="descname">deprecated</code><span class="sig-paren">(</span><em>func</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#deprecated"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.deprecated" title="Permalink to this definition">¶</a></dt>
+<dd><p>This is a decorator which can be used to mark functions
+as deprecated. It will result in a warning being emitted
+when the function is used.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_CorrectFloat">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_CorrectFloat</code><span class="sig-paren">(</span><em>dIn</em>, <em>dErrMax=1e-06</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_CorrectFloat"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_CorrectFloat" title="Permalink to this definition">¶</a></dt>
+<dd><p>make a float number reach the most exact value ( like 60.00000001 to 60 )
+also make it reach 1/6, 1/5, 1/4 , 1/3 1/2 and so on</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>dIn</strong> – The number to be detect and modify, or an array ( every number in it will be modified)</li>
+<li><strong>dErrMax</strong> – The error can be treated as floating point error</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">0 if not found, otherwise x in 1/x</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_Data_ReadMultiCol">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_Data_ReadMultiCol</code><span class="sig-paren">(</span><em>stFileName</em>, <em>stComment='#'</em>, <em>func=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_Data_ReadMultiCol"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_Data_ReadMultiCol" title="Permalink to this definition">¶</a></dt>
+<dd><p>Read data from multi-columns data</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>stComment</strong> – If a line start with this character, then treat it as comment</li>
+<li><strong>func</strong> – the function to convert each element string to specific object</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_Data_ReadTwoCol">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_Data_ReadTwoCol</code><span class="sig-paren">(</span><em>stFileName</em>, <em>stComment='#'</em>, <em>func=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_Data_ReadTwoCol"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_Data_ReadTwoCol" title="Permalink to this definition">¶</a></dt>
+<dd><p>Read data from empty line seperated two-columns data, which can be read directly by xmgrace 
+This function require all sets in the file must have same number of rows</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>stComment</strong> – If a line start with this character, then treat it as comment</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">a list of rows</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_Data_Write">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_Data_Write</code><span class="sig-paren">(</span><em>list_data</em>, <em>filename</em>, <em>b_col=False</em>, <em>b_twocol=False</em>, <em>b_complex=False</em>, <em>b_split=True</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_Data_Write"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_Data_Write" title="Permalink to this definition">¶</a></dt>
+<dd><p>This function can write data into files in the two-columns or the multi-columns format.
+The data is a nested lists, can be row first or column first.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>list_data</strong> – list of [x,y1,y2,y3…]</li>
+<li><strong>b_col</strong> – the data is in the format of [[x,x,x…],[y1,y1,y1]…</li>
+<li><strong>b_twocol</strong> – write the data in two-columns format instead of [x,y1,y2..] format</li>
+<li><strong>b_split</strong> – write all real parts of y first and then imaginary parts: x,y1.real,y2.real,…y1.imag,y2.imag…</li>
+<li><strong>b_complex</strong> – can be used when the data is complex, the real and imaginary parts will be in different columns</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_Data_WriteMultiCol">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_Data_WriteMultiCol</code><span class="sig-paren">(</span><em>data</em>, <em>stFileName</em>, <em>delim='  '</em>, <em>func=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_Data_WriteMultiCol"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_Data_WriteMultiCol" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write data into multi-columns with space seperated</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>data</strong> – 2-D list contains the data</li>
+<li><strong>stFileName</strong> – the output filename</li>
+<li><strong>func</strong> – the function to convert element to string. If not specified, set to str()</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_Data_WriteTwoCol">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_Data_WriteTwoCol</code><span class="sig-paren">(</span><em>data</em>, <em>stFileName</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_Data_WriteTwoCol"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_Data_WriteTwoCol" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write data to empty line seperated two-columns data, which can be read directly by xmgrace</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_File_GetLibraryPath">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_File_GetLibraryPath</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_File_GetLibraryPath"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_File_GetLibraryPath" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the path of python library file itself</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_File_IsNullOrEmpty">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_File_IsNullOrEmpty</code><span class="sig-paren">(</span><em>st</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_File_IsNullOrEmpty"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_File_IsNullOrEmpty" title="Permalink to this definition">¶</a></dt>
+<dd><p>Determine whether a file does not exist, or is empty</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_FindFraction">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_FindFraction</code><span class="sig-paren">(</span><em>dIn</em>, <em>dErrMax=1e-06</em>, <em>dMaxDiv=10</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_FindFraction"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_FindFraction" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find the most appraoching fraction for given float number</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first simple">
+<li><strong>dIn</strong> – the floating number</li>
+<li><strong>dErrMax</strong> – the relative maximum error allowed between fraction and dIn</li>
+<li><strong>dMaxDiv</strong> – the maximum divider allowed</li>
+</ul>
+</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body"><p class="first last">two integer to represent the fraction. If not found, return two None</p>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_FindGCD">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_FindGCD</code><span class="sig-paren">(</span><em>n1</em>, <em>n2</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_FindGCD"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_FindGCD" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find the greatest common divisor of two integers</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_FindLCM">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_FindLCM</code><span class="sig-paren">(</span><em>n1</em>, <em>n2</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_FindLCM"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_FindLCM" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find the least common multiple of two integers</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_GetCaseName">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_GetCaseName</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_GetCaseName"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_GetCaseName" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get current folder name, used in Wien2K as casename</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_GetExecFullPath">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_GetExecFullPath</code><span class="sig-paren">(</span><em>stExe</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_GetExecFullPath"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_GetExecFullPath" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get a program full path</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_GetLibDataPath">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_GetLibDataPath</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_GetLibDataPath"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_GetLibDataPath" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get PYTHONPATH for read some data file in the path</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_GetReciprocalLattice">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_GetReciprocalLattice</code><span class="sig-paren">(</span><em>matR</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_GetReciprocalLattice"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_GetReciprocalLattice" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get reciprocal lattice vectors from real lattice  or vice versa
+Recprocal lattice is just inversion of real lattice * 2pi, indeed.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_GetSurfaceFromMiller">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_GetSurfaceFromMiller</code><span class="sig-paren">(</span><em>list_index</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_GetSurfaceFromMiller"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_GetSurfaceFromMiller" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get three vectors ( base cell vectors ) perpendicular to specific miller index
+:return: first two make the surface , the third make it a cell</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_IsNumber">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_IsNumber</code><span class="sig-paren">(</span><em>stInput</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_IsNumber"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_IsNumber" title="Permalink to this definition">¶</a></dt>
+<dd><p>Detect if this string can be converted to a float number, return true or false</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_Latt_IsClinic">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_Latt_IsClinic</code><span class="sig-paren">(</span><em>listAngle</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_Latt_IsClinic"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_Latt_IsClinic" title="Permalink to this definition">¶</a></dt>
+<dd><p>Determine whether a cell is monoclinic or tricilinic</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_MaxCommonSubmultiple">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_MaxCommonSubmultiple</code><span class="sig-paren">(</span><em>a</em>, <em>b</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_MaxCommonSubmultiple"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_MaxCommonSubmultiple" title="Permalink to this definition">¶</a></dt>
+<dd><p>return maximum common submultiple of two integer</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_MinCommonMultiple">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_MinCommonMultiple</code><span class="sig-paren">(</span><em>a</em>, <em>b</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_MinCommonMultiple"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_MinCommonMultiple" title="Permalink to this definition">¶</a></dt>
+<dd><p>return minimum common multiple of two integer</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_ReadFileFloatValue">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_ReadFileFloatValue</code><span class="sig-paren">(</span><em>stFileName</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_ReadFileFloatValue"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_ReadFileFloatValue" title="Permalink to this definition">¶</a></dt>
+<dd><p>Read a single floating point value of one file
+If the file does not exists, then return None</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_ReadFileIntValue">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_ReadFileIntValue</code><span class="sig-paren">(</span><em>stFileName</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_ReadFileIntValue"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_ReadFileIntValue" title="Permalink to this definition">¶</a></dt>
+<dd><p>Read a single integer point value of one file
+If the file does not exists, then return None</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_ReadStdout">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_ReadStdout</code><span class="sig-paren">(</span><em>cmd</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_ReadStdout"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_ReadStdout" title="Permalink to this definition">¶</a></dt>
+<dd><p>Open a Shell with specific command and return its stdout</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_RotateMatrix">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_RotateMatrix</code><span class="sig-paren">(</span><em>dAngle</em>, <em>vec</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_RotateMatrix"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_RotateMatrix" title="Permalink to this definition">¶</a></dt>
+<dd><p>Create a rotation matrix from angle and vector ( vector will be convert to unit vector )</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_SolveCross">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_SolveCross</code><span class="sig-paren">(</span><em>s1</em>, <em>s2</em>, <em>s3</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_SolveCross"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_SolveCross" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find minimum integer solution for UxV = nS</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_Split_EnumerateRangeString">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_Split_EnumerateRangeString</code><span class="sig-paren">(</span><em>stRange</em>, <em>stRangeType='mms'</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_Split_EnumerateRangeString"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_Split_EnumerateRangeString" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate a list of all possible combination from a string
+string format : PropertyA:20,40,50~100~10;PropertyB_x:4~12~2
+“_x” after name means relative value ( used for ecutrho, which is relative to ecutwfc)
+relative value will be set in the order of string, 
+if ecutrho_x is before ecutwfc, it will be used as ecutwfc in original input file * parameter</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_Split_RangeString">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_Split_RangeString</code><span class="sig-paren">(</span><em>stRange</em>, <em>stRangeType='mms'</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_Split_RangeString"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_Split_RangeString" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generate a list of number from string.
+String format: a,b,c,d~e~f,h,… ( every character represent a float value)
+‘,’ seperate different value
+‘a~b~c’ define a list of a,a+c,a+2*c,…a+n*c, until a+n*c &gt; b ( if a &lt;b) or a+n*c &lt; b ( if a &gt; b)
+which means 1~3~1 -&gt; 1,2,3
+if a contains non-digit character, the value will be stored as string
+if “~” is used, the value will be stored as float; otherwise string</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>stRange</strong> – the string you wanna to split</li>
+<li><strong>stRangeType</strong> – define what a~b~c represent , ‘mms’ means min-max-step, ‘msm’ means min-step-max</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_WriteFileFloatValue">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_WriteFileFloatValue</code><span class="sig-paren">(</span><em>val</em>, <em>stFileName</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_WriteFileFloatValue"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_WriteFileFloatValue" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write a single floating point value to one file</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_WriteFileIntValue">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_WriteFileIntValue</code><span class="sig-paren">(</span><em>val</em>, <em>stFileName</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_WriteFileIntValue"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_WriteFileIntValue" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write a single integer value to one file</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_env_GetJobSystem">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_env_GetJobSystem</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_env_GetJobSystem"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_env_GetJobSystem" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get Job Management System Name</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_env_MpirunCommand">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_env_MpirunCommand</code><span class="sig-paren">(</span><em>stCommand</em>, <em>nProcessIn=0</em>, <em>stJobSystem=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_env_MpirunCommand"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_env_MpirunCommand" title="Permalink to this definition">¶</a></dt>
+<dd><p>create a string to run command with mpirun
+if enviroment varialbe tmckit_serial = 1, then mpirun will not be used ( depreceted )
+if nProcess = 0 and enviroment varialbe tmckit_process is set, then use $tmckit_process as nProcess will be used</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><ul class="first last simple">
+<li><strong>stCommand</strong> – The main command used after mpirun</li>
+<li><strong>nProcess</strong> – The count of process. If not used or set as 0, default to hostfile</li>
+<li><strong>stJobSystem</strong> – Specify Job Management System. If not used, default as auto detect. If no job system detected, the command will be used directly.</li>
+</ul>
+</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_env_RunMpirunCommand">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_env_RunMpirunCommand</code><span class="sig-paren">(</span><em>stCommand</em>, <em>nProcess=0</em>, <em>stJobSystem=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_env_RunMpirunCommand"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_env_RunMpirunCommand" title="Permalink to this definition">¶</a></dt>
+<dd><p>run command with mpirun</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_file_ensure_no_file">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_file_ensure_no_file</code><span class="sig-paren">(</span><em>filename</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_file_ensure_no_file"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_file_ensure_no_file" title="Permalink to this definition">¶</a></dt>
+<dd><p>Test whether a file  exists. If yes then delete it.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_file_ensuredir">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_file_ensuredir</code><span class="sig-paren">(</span><em>dirname</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_file_ensuredir"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_file_ensuredir" title="Permalink to this definition">¶</a></dt>
+<dd><p>Test whether a directory exists. If not then create it.</p>
+<table class="docutils field-list" frame="void" rules="none">
+<col class="field-name" />
+<col class="field-body" />
+<tbody valign="top">
+<tr class="field-odd field"><th class="field-name">Parameters:</th><td class="field-body"><strong>dirname</strong> – the directory to create. If it is empty or None, then set to current directory</td>
+</tr>
+<tr class="field-even field"><th class="field-name">Returns:</th><td class="field-body">the diretory path guaranteed to work</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+
+<dl class="function">
+<dt id="common_caseutil.f_write_file_string">
+<code class="descclassname">common_caseutil.</code><code class="descname">f_write_file_string</code><span class="sig-paren">(</span><em>val</em>, <em>filename</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/common_caseutil.html#f_write_file_string"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#common_caseutil.f_write_file_string" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write a single string to one file</p>
+</dd></dl>
+
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2014, TMC group
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

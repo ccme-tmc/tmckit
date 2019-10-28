@@ -25,7 +25,7 @@
 
 #Warning: Use TableOf will cause XML cannot be validated by XSD! Please be cautious when using it.
 
-
+from __future__ import print_function
 import xml.dom.minidom as minidom
 import os
 
@@ -82,9 +82,9 @@ def f_xml_ReadBaseTypeString(value,stType):
         elif ( value.lower() == "false"):
             obj = False
         else:
-            raise ValueError,"Boolean type must has value 'true' or 'false'"
+            raise ValueError("Boolean type must has value 'true' or 'false'")
     else:
-        raise ValueError,"Unknown type: "+stType2
+        raise ValueError("Unknown type: "+stType2)
     return obj
 
 def f_xml_ReadBaseTypeNode(node_xml,stType):
@@ -184,7 +184,7 @@ class XMLSerilizer():
         if ( not os.path.exists(stFile)):#Search order : current folder, default folder ( tmckit/schemas )
             stFile = f_xml_GetSchemaFilePath(stFile) 
             if ( os.path.exists(f_xml_GetSchemaFilePath(stFile))):
-                raise ValueError,"schema %s not found" % stFile
+                raise ValueError("schema %s not found" % stFile)
         
         if ( self.schema == None):
             self.schema = f_xml_GetChildElement(minidom.parse(stFile))[0] #Only first schema is used here
@@ -228,7 +228,7 @@ class XMLSerilizer():
 #               if ( not self.__IsArrayElement__(childNodes[0])):
                 for childNode in childNodes:
                     if ( not childNode.hasAttribute("maxOccurs")):
-                        raise ValueError,"Element in Array type definition must have maxOccurs attribute: " + nodeName
+                        raise ValueError("Element in Array type definition must have maxOccurs attribute: " + nodeName)
                 return True
             else:
                 return False
@@ -263,7 +263,7 @@ class XMLSerilizer():
                     node_xsd = childNode
                     break
         if ( node_xsd == None):
-            raise ValueError,"Undefined type in schema: " + stType
+            raise ValueError("Undefined type in schema: " + stType)
 
         #return f_xml_GetChildElement(node_xsd)[0] #Return complexType.sequence
         return node_xsd
@@ -275,7 +275,7 @@ class XMLSerilizer():
         Objects' type must be defined in schema
         '''
         if ( self.schema == None ):
-            raise ValueError,"XMLSerilizer must be assigned with XML schema before use"
+            raise ValueError("XMLSerilizer must be assigned with XML schema before use")
 
 #Start parse object one by one for all element in schema
 #Create new xml
@@ -438,7 +438,7 @@ class XMLSerilizer():
                                 node_attr = self.__SerilizeNode__(childObj,childNode,doc) 
                                 node_now.setAttributeNode(node_attr)
                             else:
-                                raise ValueError,"Unknown nodeName %s" % childNode.nodeName
+                                raise ValueError("Unknown nodeName %s" % childNode.nodeName)
 
 
             #Change normal xml element to text node if type is tablerow
@@ -511,7 +511,7 @@ class XMLSerilizer():
                 if ( node_xsd.hasAttribute("default")):
                     obj = f_xml_ReadBaseTypeString(node_xsd.getAttribute("default"),stType)
                 else:
-                    raise ValueError,"No value for node %s" % node_xml.toxml()
+                    raise ValueError("No value for node %s" % node_xml.toxml())
             #print("Create object: ",obj)
             return obj #Directly return if it is a simple type
         else:
@@ -564,7 +564,7 @@ class XMLSerilizer():
         if ( node_mc_type.nodeName == "xs:simpleContent"):
             node_ext_type = f_xml_GetChildElement(node_mc_type)[0]
             if ( node_ext_type.nodeName != "xs:extension"):
-                raise ValueError,"simpleContent must have one and only one element named extension"
+                raise ValueError("simpleContent must have one and only one element named extension")
             #Read base text
 #            listChild.append(node_ext_type)
 
@@ -612,7 +612,7 @@ class XMLSerilizer():
 #Create an temporary element for table parsing
                         listObj.append([stNodeName,self.__DeserilizeTable__(st_xml,doc,childNodeXSD),tag_single])
                     else:
-                        raise ValueError,"Attribute must be a base type or table/tablerow!"
+                        raise ValueError("Attribute must be a base type or table/tablerow!")
                 else:
                     listObj.append([stNodeName,f_xml_ReadBaseTypeString(st_xml,stChildType),tag_single])
                 continue
@@ -630,14 +630,14 @@ class XMLSerilizer():
                     listNodeXML.append(node_default)
 #Exception when it cannot be not none
                 if ( int(childNodeXSD.getAttribute("minOccurs")) > 0 ):
-                    raise ValueError,"Cannot find element which must be non-Null in schema: " + stNodeName
+                    raise ValueError("Cannot find element which must be non-Null in schema: " + stNodeName)
 
                 if ( not isinstance(obj,list)):
                     setattr(obj,stNodeName,None)
                     #print("Set %s to None" % stNodeName)
                 else:
 #We do not deal with list here as elements in list can never be neglected
-                    raise ValueError,"Wrong XSD: Elements in list cannot be nulliable: %s" % stNodeName
+                    raise ValueError("Wrong XSD: Elements in list cannot be nulliable: %s" % stNodeName)
 
             #print("list node: ",[x.toxml() for x in listNodeXML])
             for childNodeXML in listNodeXML:
@@ -681,7 +681,7 @@ class XMLSerilizer():
             if ( "TableRowOf" in stType):
                 obj = self.classDef[stType[10:]]()
             else:
-                raise ValueError,"Unknown type %s" %stType
+                raise ValueError("Unknown type %s" %stType)
 
 #Lookup type definition
         node_type = self.__FindTypeSchema__(stType.encode("ascii"))
@@ -729,11 +729,11 @@ class XMLSerilizer():
                 stMax =childNode.getAttribute("maxOccurs").encode("ascii")
                 if ( stMax == "unbounded"):
                     if( len(listCol) != len(columnNodes)-1 ):
-                         raise ValueError,"only the last element in definition can be unbounded"
+                         raise ValueError("only the last element in definition can be unbounded")
                     else:
                         nCol = sum(listCol)
                         if ( nCol > len(listNodeSub)):
-                            raise ValueError,"Too few columns to deserilize"
+                            raise ValueError("Too few columns to deserilize")
                         listCol.append(len(listNodeSub)-nCol)
                         listMulti.append(True)
                 else:
@@ -742,7 +742,7 @@ class XMLSerilizer():
 
             nCol = sum(listCol)
             if ( nCol != len(listNodeSub)):
-                raise ValueError,"Number of columns is different in object and definition"
+                raise ValueError("Number of columns is different in object and definition")
 
             #Parse the string to object
             index = -1

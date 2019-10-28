@@ -1,0 +1,25 @@
+.. TMCkit documentation master file, created by
+   sphinx-quickstart on Fri Jul  4 21:40:40 2014.
+   You can adapt this file completely to your liking, but it should at least
+   contain the root `toctree` directive.
+
+Welcome to TMCkit's documentation!
+==================================
+
+Contents:
+
+.. toctree::
+   :maxdepth: 2
+
+.. automodule:: common_caseutil
+    :members:
+
+
+
+Indices and tables
+==================
+
+* :ref:`genindex`
+* :ref:`modindex`
+* :ref:`search`
+

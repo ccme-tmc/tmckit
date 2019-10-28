@@ -1,20 +1,32 @@
 #!/usr/bin/env python
 
 from __future__ import print_function
-import sys,os,commands,subprocess,copy,traceback
+import sys
+import os
+import copy
+import subprocess as sp
 import math
 from math import sqrt, cos, sin
 import re
 import itertools
+try:
+    from commands import getstatusoutput
+except ImportError:
+    def getstatusoutput(cmds, shell=True):
+        """Emulator to the old commands.getstatusoutput function
+        """
+        try:
+            output = sp.check_output(cmds, shell=shell)
+            return 0, output
+        except sp.CalledProcessError as err:
+            return err.returncode, err.output
+
 #import numpy,numpy.linalg
 import constants
-
 import list_utils as lu
-
 import warnings
 import functools
 import kpt_spec
-
 from py_xmlio import XMLSerilizer
 
 logLevel = 0
@@ -38,7 +50,7 @@ def deprecated(func):
     return new_func
 
   
-def debug_print(level,*para):
+def debug_print(level, *para):
     '''
     print for debug, logLevel can be used to control whether output
     '''
@@ -186,7 +198,7 @@ def f_CorrectFloat(dIn,dErrMax=1.0e-6):
        #            result = round(dIn*i)/i
        #            break
     else:
-        raise TypeError,'Unsupported type to correct'
+        raise TypeError('Unsupported type to correct')
         
     return result
             
@@ -247,7 +259,7 @@ def f_ReadStdout(cmd):
     '''
     Open a Shell with specific command and return its stdout 
     '''
-    ProcSub = subprocess.Popen(cmd,stdout=subprocess.PIPE,shell=True)
+    ProcSub = sp.Popen(cmd,stdout=sp.PIPE,shell=True)
     return ProcSub.stdout.read()
 
 def f_env_GetJobSystem():
@@ -380,7 +392,7 @@ def f_Data_ReadTwoCol(stFileName,stComment="#",func=None):
         if ( len(stLine) ==0):#Empty line, which means a set end
             if ( bStarted):
                 if ( nRow != len(data) ):
-                    raise ValueError,"The %i set has different number of rows %i from previous %i" % (nCol,nRow,len(data))
+                    raise ValueError("The %i set has different number of rows %i from previous %i" % (nCol,nRow,len(data)))
                 else:
                     nRow = 0
                     nCol += 1
@@ -395,7 +407,7 @@ def f_Data_ReadTwoCol(stFileName,stComment="#",func=None):
         #ar = [ float(x) for x in stLine.split()]
         ar = stLine.split()
         if ( len(ar) != 2):
-            raise ValueError,"There should be only 2 value in one line"
+            raise ValueError("There should be only 2 value in one line")
 #Find data, mark as started        
         bStarted = True
         if (func is not None):
@@ -422,7 +434,7 @@ def f_Data_WriteTwoCol(data,stFileName):
     nLen = len(data[0])
     for i,row in enumerate(data):
         if ( len(row) != nLen):
-            raise ValueError,"Row %i has different columns from set" % i
+            raise ValueError("Row %i has different columns from set" % i)
     for i in xrange(1,len(data[0])):
         for j in xrange(len(data)):
             f.write("%14s    %14s\n" % ( str(data[j][0]) , str(data[j][i])))
@@ -455,7 +467,7 @@ def f_Data_ReadMultiCol(stFileName,stComment="#",func=None):
         if ( nCol == -1):
             nCol = len(ar_stLine)
         elif ( nCol != len(ar_stLine)):
-            raise ValueError,"Unmatched column number in row #%i" % i
+            raise ValueError("Unmatched column number in row #%i" % i)
         if (func is not None):
             ar_stLine = [func(x) for x in ar_stLine]
         result.append(ar_stLine)
@@ -607,7 +619,7 @@ class NamelistIO(object):
                 stVarNameTotal = aMatch.group(1)+"["+str(int(aMatch.group(2)))+"]"
             else:
                 print("Quamtum-Espresso Input Format Error!")
-                raise FormatError,"Quamtum-Espresso Input Format Error!"
+                raise FormatError("Quamtum-Espresso Input Format Error!")
         else:
             stVarNameTotal = stVarName
 
@@ -975,7 +987,7 @@ class RawFileIO():
 #           traceback.print_exc()
             pos_eq = [x.find("=") for x in self.lines]
             pos_max = max(itertools.groupby(sorted(pos_eq)),
-                    key=lambda(x,v):(len(list(v)),-pos_eq.index(x)))[0]
+                    key=lambda x, v:(len(list(v)),-pos_eq.index(x)))[0]
             pos_max = pos_max - 1
 
             if (len(name)>pos_max-1):
@@ -1044,7 +1056,7 @@ def f_Split_RangeString(stRange,stRangeType="mms"):
                 (fStart,fStep,fEnd) =[float(x) for x in arList2]
                 #(fStart,fEnd,fStep) =arList2
             if ( arList2[2] == "0" ):
-                raise ZeroDivisionError,"Cycle Step cannot be 0!"
+                raise ZeroDivisionError("Cycle Step cannot be 0!")
             #Always use float for this 
             #
             i = float(fStart)
@@ -1106,7 +1118,7 @@ def f_GetSurfaceFromMiller(list_index):
     :return: first two make the surface , the third make it a cell 
     '''
     if ( len(list_index) != 3):
-        raise ValueError, "Millier index must has 3 integer"
+        raise ValueError("Millier index must has 3 integer")
     #detect if 0 exist
     #b0 = 0 in list_index
     index = [0,1,2]
@@ -1982,7 +1994,7 @@ class Lattice(object):
                             aAtom[3] += listCAdd[i] * (aPara-1)
                             self.AddAtom([aAtom], "bohr", "conv")
             else:
-                raise ValueError,"Unsupported method to change cell!"
+                raise ValueError("Unsupported method to change cell!")
 
     def GetLayerAtom(self,dThreshold = -1.0):
         '''
@@ -2005,7 +2017,7 @@ class Lattice(object):
             listDistance.append(listAtom[i+1][3]-listAtom[i][3])
         listDistance.sort()
         if ( len(listDistance) < 1):
-            raise ValueError, "Only 1 atom in cell, seems not a suitable cell."
+            raise ValueError("Only 1 atom in cell, seems not a suitable cell.")
         dThresholdGuess = listDistance[0] * 0.9
         #print(listDistance)
         for i in range(0,len(listDistance)-1):
@@ -2305,7 +2317,7 @@ class KPointsT():
         All element can be either string or float
         '''
         if ( len(kpt) < 3 ):
-            raise ValueError,"Unexpected data format in k-point file"
+            raise ValueError("Unexpected data format in k-point file")
         elif ( len(kpt) == 3 ): #must be 3 digit
             return [""] + [float(x) for x in kpt] + [1.0]
         else:
@@ -2365,9 +2377,9 @@ class KPointsT():
 #Use or create number of points along each lines
         if ( listPointsCount == None):
             if ( nTotal == None):
-                raise ValueError,"Must specify number of k-points along each lines or the total number of k-points"
+                raise ValueError("Must specify number of k-points along each lines or the total number of k-points")
             if ( self.stMode != "cart" and self.stMode != "cartesian" and mLatt  == None):
-                raise ValueError,"Must specify lattice vectors when create k-points list from internal coordinate"
+                raise ValueError("Must specify lattice vectors when create k-points list from internal coordinate")
 #Create ca
             stModeOld = self.stMode
 #Use self as temp
@@ -2451,7 +2463,7 @@ class KPointsT():
                 return float(st)
 
         if ( self.latt == None):
-            raise ValueError,"Lattice must be specified before create k-points in band structure"
+            raise ValueError("Lattice must be specified before create k-points in band structure")
         listSpec = None
 #Detect UAC : whether this space group have A / C axis variants depending on the angles
         bHasUAC = kpt_spec.listSpaceGroupKPointsUAC[nGroup-1] != None
@@ -2463,7 +2475,7 @@ class KPointsT():
             if ( abs(self.latt.fLatticeAngle[2]-90) > 0.01):
                 nUAC += 3
             if ( nUAC != 2 and nUAC != 3):
-                raise ValueError,"The cell shape is not consistent with space group"
+                raise ValueError("The cell shape is not consistent with space group")
 #Unique axis C
             if ( nUAC == 3):
                 listSpec = kpt_spec.listSpaceGroupKPointsUAC[nGroup-1]
@@ -2476,7 +2488,7 @@ class KPointsT():
                     listSpec = kpt_cond[1]
                     break
             if ( listSpec == None):
-                raise ValueError,"The cell shape is not consistent with space group"
+                raise ValueError("The cell shape is not consistent with space group")
 
         #Parse k-points data
         #Always use primitive cell
